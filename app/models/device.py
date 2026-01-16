@@ -1,6 +1,7 @@
 from sqlalchemy import Column, BigInteger, Numeric, String, Boolean, DateTime, Integer, ForeignKey
 from datetime import datetime
 from app.models.user import Base
+from sqlalchemy.orm import relationship
 
 class Device(Base):
     __tablename__ = "devices"
@@ -15,3 +16,9 @@ class Device(Base):
     up_time = Column(Integer, default=0)
     last_online = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    data_hourly = relationship(
+        "DataHourly",
+        back_populates="device",
+        cascade="all, delete-orphan"
+    )
