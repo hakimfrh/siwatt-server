@@ -89,7 +89,7 @@ def get_hourly_data(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(24, ge=1, le=1000),
+    limit: int = Query(24, ge=1, le=9999),
     device_id: Optional[int] = None,
     get_average: bool = False,
     db: Session = Depends(get_db),
