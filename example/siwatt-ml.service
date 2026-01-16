@@ -1,0 +1,15 @@
+[Unit]
+Description=SIWATT ML Worker
+After=network.target mysql.service
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/opt/siwatt-server/ml_worker
+EnvironmentFile=/opt/siwatt-server/.env
+ExecStart=/root/siwatt-venv/venv/bin/python worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
