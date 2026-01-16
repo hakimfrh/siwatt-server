@@ -6,7 +6,8 @@ from app.models.user import User
 from app.schemas.user import UserRegister, UserLogin
 from app.schemas.response import ApiResponse
 from app.schemas.auth import LoginData, RegisterData
-
+from app.core.security import create_access_token
+from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -38,8 +39,6 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         }
     }
 
-from app.core.security import create_access_token
-
 @router.post("/login", response_model=ApiResponse[LoginData])
 def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
@@ -51,6 +50,23 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     return {
         "code": 200,
         "message": "Login successfully",
+        "data": {
+            "user": user,
+            "api_token": token
+        }
+    }
+
+@router.post("/refresh", response_model=ApiResponse[LoginData])
+def refresh_token(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    token = create_access_token(user.id)
+
+    return {
+        "code": 200,
+        "message": "Token refreshed successfully",
         "data": {
             "user": user,
             "api_token": token
