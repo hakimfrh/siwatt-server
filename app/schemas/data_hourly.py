@@ -23,6 +23,7 @@ class DataHourlyResponse(DataHourlyBase):
 class DataHourlyListResponse(BaseModel):
     code: int
     message: str
+    data_length: Optional[int] = None
     avg_voltage: Optional[float] = None
     avg_current: Optional[float] = None
     avg_power: Optional[float] = None

@@ -158,6 +158,7 @@ def get_hourly_data(
     return {
         "code": 200,
         "message": "Data retrieved successfully",
+        "data_length": len(data),
         **avg_data,
         "data": data
     }
