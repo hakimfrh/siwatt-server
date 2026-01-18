@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.device import Device
 from app.models.token_transaction import TokenTransaction
-from app.schemas.token import TokenTopUp
+from app.schemas.token import TokenTopUp, TokenTransactionListResponse
 from app.schemas.response import ApiResponse
 
 router = APIRouter(
@@ -52,19 +52,32 @@ def topup_token(
         }
     }
 
-@router.get("/transactions/{device_id}")
+@router.get("/transactions/{device_id}", response_model=TokenTransactionListResponse)
 def list_token_transactions(
     device_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):  
-    transactions = db.query(TokenTransaction).filter(
+    query = db.query(TokenTransaction).filter(
         TokenTransaction.user_id == user_id,
         TokenTransaction.device_id == device_id
-    ).all()
+    )
+
+    total = query.count()
+    offset = (page - 1) * limit
+    transactions = query.offset(offset).limit(limit).all()
+
+    total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
     return {
         "code": 200,
         "message": "Token transactions retrieved",
+        "data_length": len(transactions),
+        "total_data": total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "data_per_page": limit,
         "data": transactions
     }

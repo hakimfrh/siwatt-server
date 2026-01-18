@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.device import Device
-from app.schemas.device import DeviceCreate
+from app.schemas.device import DeviceCreate, DeviceListResponse
 from app.schemas.response import ApiResponse
 
 router = APIRouter(
@@ -34,15 +34,29 @@ def create_device(
         "data": device
     }
 
-@router.get("")
+@router.get("", response_model=DeviceListResponse)
 def list_devices(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
-    devices = db.query(Device).filter(Device.user_id == user_id).all()
+    query = db.query(Device).filter(Device.user_id == user_id)
+    
+    total = query.count()
+    offset = (page - 1) * limit
+    devices = query.offset(offset).limit(limit).all()
+    
+    total_pages = (total + limit - 1) // limit if limit > 0 else 0
+
     return {
         "code": 200,
         "message": "Devices retrieved",
+        "data_length": len(devices),
+        "total_data": total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "data_per_page": limit,
         "data": devices
     }
 
