@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
@@ -16,10 +17,16 @@ router = APIRouter(
 
 @router.get("/stats", response_model=ApiResponse[DashboardStats])
 def get_dashboard_stats(
+    device_id: Optional[int] = None,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
-    device = db.query(Device).filter(Device.user_id == user_id, Device.is_active == True).first()
+    if device_id:
+        device = db.query(Device).filter(Device.user_id == user_id, Device.id == device_id).first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+    else:
+        device = db.query(Device).filter(Device.user_id == user_id, Device.is_active == True).first()
     
     avg_usage = 0.0
     token_balance = 0.0
