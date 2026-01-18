@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -14,8 +15,8 @@ class DeviceResponse(BaseModel):
     token_balance: float
     is_active: bool
     up_time: int
-    last_online: str
-    created_at: str
+    last_online: Optional[datetime] = None
+    created_at: datetime
     
 class DeviceListResponse(BaseModel):
     code: int
