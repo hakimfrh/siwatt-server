@@ -24,6 +24,10 @@ class DataHourlyListResponse(BaseModel):
     code: int
     message: str
     data_length: Optional[int] = None
+    total_data: Optional[int] = None
+    total_pages: Optional[int] = None
+    current_page: Optional[int] = None
+    data_per_page: Optional[int] = None
     avg_voltage: Optional[float] = None
     avg_current: Optional[float] = None
     avg_power: Optional[float] = None

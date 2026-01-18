@@ -130,12 +130,14 @@ def get_hourly_data(
         DataHourly.device_id == device.id,
         DataHourly.datetime >= start_dt,
         DataHourly.datetime <= end_dt
-    ).order_by(DataHourly.datetime.asc()) # Ordered by time
+    ).order_by(DataHourly.datetime.asc())
 
     # Pagination
     total = query.count()
     offset = (page - 1) * limit
     data = query.offset(offset).limit(limit).all()
+
+    total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
     avg_data = {}
     if get_average:
@@ -159,6 +161,10 @@ def get_hourly_data(
         "code": 200,
         "message": "Data retrieved successfully",
         "data_length": len(data),
+        "total_data": total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "data_per_page": limit,
         **avg_data,
         "data": data
     }
