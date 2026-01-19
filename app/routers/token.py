@@ -63,7 +63,7 @@ def list_token_transactions(
     query = db.query(TokenTransaction).filter(
         TokenTransaction.user_id == user_id,
         TokenTransaction.device_id == device_id
-    )
+    ).order_by(TokenTransaction.created_at.desc())
 
     total = query.count()
     offset = (page - 1) * limit
