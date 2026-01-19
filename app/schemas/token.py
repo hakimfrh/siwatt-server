@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from decimal import Decimal
 from typing import Optional, List
+from datetime import datetime
 
 class TokenTopUp(BaseModel):
     device_id: int
@@ -12,7 +13,7 @@ class TokenTransactionResponse(BaseModel):
     device_id: int
     amount_kwh: Decimal
     price: Decimal
-    created_at: str
+    created_at: datetime
 
 class TokenTransactionListResponse(BaseModel):
     code: int
