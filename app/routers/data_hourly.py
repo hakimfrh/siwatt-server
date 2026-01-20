@@ -89,7 +89,7 @@ def get_hourly_data(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(24, ge=1, le=9999),
+    limit: int = Query(24, ge=-1),
     device_id: Optional[int] = None,
     frequency: str = Query("hour", regex="^(hour|day|week|month)$"),
     get_average: bool = False,
@@ -162,10 +162,15 @@ def get_hourly_data(
 
     # Pagination
     total = query.count()
-    offset = (page - 1) * limit
-    data = query.offset(offset).limit(limit).all()
-
-    total_pages = (total + limit - 1) // limit if limit > 0 else 0
+    
+    if limit == -1:
+        data = query.all()
+        limit = total
+        total_pages = 1
+    else:
+        offset = (page - 1) * limit
+        data = query.offset(offset).limit(limit).all()
+        total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
     avg_data = {}
     if get_average:

@@ -37,17 +37,22 @@ def create_device(
 @router.get("", response_model=DeviceListResponse)
 def list_devices(
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=-1),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
     query = db.query(Device).filter(Device.user_id == user_id)
     
     total = query.count()
-    offset = (page - 1) * limit
-    devices = query.offset(offset).limit(limit).all()
     
-    total_pages = (total + limit - 1) // limit if limit > 0 else 0
+    if limit == -1:
+        devices = query.all()
+        limit = total
+        total_pages = 1
+    else:
+        offset = (page - 1) * limit
+        devices = query.offset(offset).limit(limit).all()
+        total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
     return {
         "code": 200,

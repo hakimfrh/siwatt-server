@@ -116,7 +116,7 @@ def list_token_transactions(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=-1),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):  
@@ -141,11 +141,15 @@ def list_token_transactions(
     total_price = sum((t.price for t in all_transactions if t.price is not None and t.type == 'topup'))
 
     # Pagination
-    start = (page - 1) * limit
-    end = start + limit
-    transactions = all_transactions[start:end]
-
-    total_pages = (total + limit - 1) // limit if limit > 0 else 0
+    if limit == -1:
+        transactions = all_transactions
+        limit = total
+        total_pages = 1
+    else:
+        start = (page - 1) * limit
+        end = start + limit
+        transactions = all_transactions[start:end]
+        total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
     return {
         "code": 200,
