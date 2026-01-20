@@ -149,6 +149,7 @@ def get_hourly_data(
             group_expr = func.date_format(DataHourly.datetime, '%Y-%m')
         
         query = db.query(
+            func.min(DataHourly.id).label("id"),
             func.min(DataHourly.datetime).label("datetime"),
             func.avg(DataHourly.voltage).label("voltage"),
             func.avg(DataHourly.current).label("current"),
