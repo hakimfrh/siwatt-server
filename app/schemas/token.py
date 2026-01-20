@@ -40,6 +40,8 @@ class TokenBalanceGraphPoint(BaseModel):
     usage: float
     topup: float
     balance: float
+    type: str
+    final_balance: float
 
 class TokenBalanceGraphResponse(BaseModel):
     code: int

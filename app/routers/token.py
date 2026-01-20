@@ -137,8 +137,8 @@ def list_token_transactions(
     total = len(all_transactions)
     
     # Calculate totals from fetched data
-    total_bought = sum((t.amount_kwh for t in all_transactions if t.amount_kwh is not None))
-    total_price = sum((t.price for t in all_transactions if t.price is not None))
+    total_bought = sum((t.amount_kwh for t in all_transactions if t.amount_kwh is not None and t.type == 'topup'))
+    total_price = sum((t.price for t in all_transactions if t.price is not None and t.type == 'topup'))
 
     # Pagination
     start = (page - 1) * limit
@@ -206,18 +206,32 @@ def get_token_balance_data(
             DataHourly.datetime <= end_dt
         ).group_by(func.date(DataHourly.datetime)).all()
         
+        # Group by Date and Type to identify transaction types
         topup_data = db.query(
             func.date(TokenTransaction.created_at).label('date'),
-            func.sum(TokenTransaction.amount_kwh).label('topup')
+            TokenTransaction.type,
+            func.sum(TokenTransaction.amount_kwh).label('amount')
         ).filter(
             TokenTransaction.device_id == device_id,
             TokenTransaction.created_at >= start_dt,
             TokenTransaction.created_at <= end_dt
-        ).group_by(func.date(TokenTransaction.created_at)).all()
+        ).group_by(
+            func.date(TokenTransaction.created_at),
+            TokenTransaction.type
+        ).all()
         
         # Convert to dict for easier access
         usage_map = {str(d[0]): float(d[1] or 0) for d in usage_data}
-        topup_map = {str(d[0]): float(d[1] or 0) for d in topup_data}
+        
+        topup_map = {}
+        for d in topup_data:
+            d_str = str(d[0])
+            if d_str not in topup_map:
+                topup_map[d_str] = {'amount': 0.0, 'types': set()}
+            
+            topup_map[d_str]['amount'] += float(d[2] or 0)
+            if d[1]:
+                topup_map[d_str]['types'].add(str(d[1]))
         
         # Generate range of dates
         delta = end_date - start_date
@@ -227,11 +241,19 @@ def get_token_balance_data(
             day_str = str(day)
             
             u = usage_map.get(day_str, 0.0)
-            t = topup_map.get(day_str, 0.0)
+            t_info = topup_map.get(day_str, {'amount': 0.0, 'types': set()})
+            t = t_info['amount']
             
-            if t > 0:
+            # Determine point type
+            if t != 0 or len(t_info['types']) > 0:
+                if 'correction' in t_info['types']:
+                    pt = 'correction'
+                else:
+                    pt = 'topup'
                 calculation_started = True
                 current_balance += t
+            else:
+                pt = 'usage'
             
             if calculation_started:
                 current_balance -= u
@@ -242,7 +264,9 @@ def get_token_balance_data(
                 "datetime": datetime.combine(day, time.min),
                 "usage": u,
                 "topup": t,
-                "balance": current_balance
+                "balance": current_balance,
+                "type": pt,
+                "final_balance": current_balance
             })
 
     else: # hour
@@ -265,7 +289,7 @@ def get_token_balance_data(
         while curr <= end_dt:
              # bucket key: start of hour
              key = curr.replace(minute=0, second=0, microsecond=0)
-             buckets[key] = {"usage": 0.0, "topup": 0.0}
+             buckets[key] = {"usage": 0.0, "topup": 0.0, "types": set()}
              curr += timedelta(hours=1)
              
         # Fill buckets
@@ -278,15 +302,24 @@ def get_token_balance_data(
             k = r.created_at.replace(minute=0, second=0, microsecond=0)
             if k in buckets:
                 buckets[k]["topup"] += float(r.amount_kwh or 0)
+                if r.type:
+                    buckets[k]["types"].add(str(r.type))
         
         sorted_keys = sorted(buckets.keys())
         for k in sorted_keys:
             u = buckets[k]["usage"]
             t = buckets[k]["topup"]
+            types = buckets[k]["types"]
             
-            if t > 0:
+            if t != 0 or len(types) > 0:
+                if 'correction' in types:
+                    pt = 'correction'
+                else:
+                    pt = 'topup'
                 calculation_started = True
                 current_balance += t
+            else:
+                pt = 'usage'
             
             if calculation_started:
                 current_balance -= u
@@ -297,7 +330,9 @@ def get_token_balance_data(
                 "datetime": k,
                 "usage": u,
                 "topup": t,
-                "balance": current_balance
+                "balance": current_balance,
+                "type": pt,
+                "final_balance": current_balance
             })
 
     return {
