@@ -17,7 +17,7 @@ class DataHourlyBase(BaseModel):
         from_attributes = True
 
 class DataHourlyResponse(DataHourlyBase):
-    id: int
+    id: Optional[int] = None
     device_id: int
 
 class DataHourlyListResponse(BaseModel):

@@ -54,7 +54,7 @@ def get_average_data(
              "avg_voltage": 0.0,
             "avg_current": 0.0,
             "avg_power": 0.0,
-            "avg_energy": 0.0,
+            "avg_energy_hour": 0.0,
             "avg_frequency": 0.0,
             "avg_pf": 0.0
         }
@@ -64,7 +64,7 @@ def get_average_data(
         func.avg(DataHourly.voltage).label("voltage"),
         func.avg(DataHourly.current).label("current"),
         func.avg(DataHourly.power).label("power"),
-        func.avg(DataHourly.energy).label("energy"),
+        func.avg(DataHourly.energy_hour).label("energy_hour"),
         func.avg(DataHourly.frequency).label("frequency"),
         func.avg(DataHourly.pf).label("pf")
     ).filter(
@@ -79,7 +79,7 @@ def get_average_data(
         "avg_voltage": float(avg_data.voltage or 0),
         "avg_current": float(avg_data.current or 0),
         "avg_power": float(avg_data.power or 0),
-        "avg_energy": float(avg_data.energy or 0),
+        "avg_energy_hour": float(avg_data.energy_hour or 0),
         "avg_frequency": float(avg_data.frequency or 0),
         "avg_pf": float(avg_data.pf or 0)
     }
@@ -91,6 +91,7 @@ def get_hourly_data(
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=9999),
     device_id: Optional[int] = None,
+    frequency: str = Query("hour", regex="^(hour|day|week|month)$"),
     get_average: bool = False,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
@@ -125,12 +126,39 @@ def get_hourly_data(
             "data": []
         }
 
-    # Query DataHourly
-    query = db.query(DataHourly).filter(
+    # Base Filter
+    filters = [
         DataHourly.device_id == device.id,
         DataHourly.datetime >= start_dt,
         DataHourly.datetime <= end_dt
-    ).order_by(DataHourly.datetime.asc())
+    ]
+
+    if frequency == 'hour':
+        # Query DataHourly Normal
+        query = db.query(DataHourly).filter(*filters).order_by(DataHourly.datetime.asc())
+    else:
+        # Aggregation Logic
+        if frequency == 'day':
+            group_expr = func.date(DataHourly.datetime)
+            # MySQL specific for safe sorting/selecting, or generic
+        elif frequency == 'week':
+            # Group by year and week
+            group_expr = func.yearweek(DataHourly.datetime, 1)
+        elif frequency == 'month':
+            # Group by year and month
+            group_expr = func.date_format(DataHourly.datetime, '%Y-%m')
+        
+        query = db.query(
+            func.min(DataHourly.datetime).label("datetime"),
+            func.avg(DataHourly.voltage).label("voltage"),
+            func.avg(DataHourly.current).label("current"),
+            func.avg(DataHourly.power).label("power"),
+            func.max(DataHourly.energy).label("energy"),
+            func.avg(DataHourly.frequency).label("frequency"),
+            func.avg(DataHourly.pf).label("pf"),
+            func.sum(DataHourly.energy_hour).label("energy_hour"),
+            func.min(DataHourly.device_id).label("device_id") # constant
+        ).filter(*filters).group_by(group_expr).order_by(func.min(DataHourly.datetime).asc())
 
     # Pagination
     total = query.count()
@@ -146,14 +174,14 @@ def get_hourly_data(
             avg_data["avg_voltage"] = sum(d.voltage or 0 for d in data) / count
             avg_data["avg_current"] = sum(d.current or 0 for d in data) / count
             avg_data["avg_power"] = sum(d.power or 0 for d in data) / count
-            avg_data["avg_energy"] = sum(d.energy or 0 for d in data) / count
+            avg_data["avg_energy_hour"] = sum(d.energy_hour or 0 for d in data) / count
             avg_data["avg_frequency"] = sum(d.frequency or 0 for d in data) / count
             avg_data["avg_pf"] = sum(d.pf or 0 for d in data) / count
         else:
             avg_data["avg_voltage"] = 0.0
             avg_data["avg_current"] = 0.0
             avg_data["avg_power"] = 0.0
-            avg_data["avg_energy"] = 0.0
+            avg_data["avg_energy_hour"] = 0.0
             avg_data["avg_frequency"] = 0.0
             avg_data["avg_pf"] = 0.0
 
@@ -168,4 +196,5 @@ def get_hourly_data(
         **avg_data,
         "data": data
     }
+
 
