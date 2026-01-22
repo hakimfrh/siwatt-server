@@ -1,6 +1,8 @@
 import os
 from typing import Optional, Tuple
 
+from dotenv import load_dotenv
+
 from mqtt_worker.db.repository import Repository
 from mqtt_worker.mqtt.client import create_client
 from mqtt_worker.mqtt.subscriber import Subscriber
@@ -12,6 +14,8 @@ from mqtt_worker.storage.recovery import RecoveryManager
 from mqtt_worker.utils.datetime import floor_hour, parse_datetime
 from mqtt_worker.utils.logger import get_logger
 
+
+load_dotenv()
 
 TOPIC_WILDCARD = os.getenv("MQTT_TOPIC_WILDCARD", "/siwatt-mqtt/+/swm-raw/+")
 TOPIC_MODE = os.getenv("MQTT_TOPIC_MODE", "prefixed").lower()

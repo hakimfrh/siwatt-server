@@ -19,3 +19,8 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+# MQTT worker buffers
+mqtt_worker/data/buffer/
+mqtt_worker/data/buffer/**
+mqtt_worker/data/buffer/bad/

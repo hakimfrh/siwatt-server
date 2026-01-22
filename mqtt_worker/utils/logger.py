@@ -30,15 +30,27 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class ContextLogger(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        reserved = {"exc_info", "stack_info", "stacklevel", "extra"}
+        extra = dict(kwargs.get("extra", {}))
+        for key, value in list(kwargs.items()):
+            if key in reserved:
+                continue
+            extra[key] = value
+
+        clean_kwargs = {key: value for key, value in kwargs.items() if key in reserved}
+        clean_kwargs["extra"] = extra
+        return msg, clean_kwargs
+
+
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
-    if logger.handlers:
-        return logger
-
-    level = os.getenv("LOG_LEVEL", "INFO").upper()
-    logger.setLevel(level)
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
-    logger.addHandler(handler)
-    logger.propagate = False
-    return logger
+    if not logger.handlers:
+        level = os.getenv("LOG_LEVEL", "INFO").upper()
+        logger.setLevel(level)
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(JsonFormatter())
+        logger.addHandler(handler)
+        logger.propagate = False
+    return ContextLogger(logger, {})
