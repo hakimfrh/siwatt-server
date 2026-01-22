@@ -5,9 +5,9 @@ After=network.target mysql.service
 [Service]
 User=root
 Group=root
-WorkingDirectory=/opt/siwatt-server/mqtt_worker
+WorkingDirectory=/opt/siwatt-server
 EnvironmentFile=/opt/siwatt-server/.env
-ExecStart=/root/siwatt-venv/venv/bin/python worker.py
+ExecStart=/root/siwatt-venv/venv/bin/python /opt/siwatt-server/mqtt_worker/main.py
 Restart=always
 RestartSec=5
 
