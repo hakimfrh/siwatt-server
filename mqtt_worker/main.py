@@ -62,7 +62,7 @@ class AggregationPipeline:
 		try:
 			self._repo.upsert_minutely(
 				device_id=device_id,
-				dt=aggregate.minute_start,
+				dt=aggregate.minute_mark,
 				averages=aggregate.averages,
 				energy_last=aggregate.energy_last,
 				energy_delta=aggregate.energy_delta,
@@ -78,10 +78,9 @@ class AggregationPipeline:
 				self._logger.exception("balance_minute_update_failed", device_id=device_id)
 				return ProcessDecision(success=False)
 
-		previous_hour = floor_hour(aggregate.minute_start)
 		current_hour = floor_hour(dt)
-		if current_hour != previous_hour:
-			success, energy_delta = self._hourly.handle(device_id, previous_hour)
+		if current_hour != aggregate.bucket_hour:
+			success, energy_delta = self._hourly.handle(device_id, aggregate.bucket_hour, current_hour)
 			if not success:
 				return ProcessDecision(success=False)
 			if self._balance_mode == "hour" and energy_delta is not None:

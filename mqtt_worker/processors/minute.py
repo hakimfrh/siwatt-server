@@ -9,7 +9,8 @@ FIELDS = ("voltage", "current", "power", "frequency", "pf")
 
 @dataclass
 class MinuteAggregate:
-    minute_start: datetime
+    minute_mark: datetime
+    bucket_hour: datetime
     averages: dict
     energy_last: float
     energy_delta: float
@@ -33,7 +34,7 @@ class MinuteAggregator:
             self._accumulate(payload)
             return None
 
-        aggregate = self._finalize()
+        aggregate = self._finalize(minute_start)
         self._start_bucket(minute_start, payload)
         return aggregate
 
@@ -54,14 +55,15 @@ class MinuteAggregator:
             self._energy_first = energy_value
         self._energy_last = energy_value
 
-    def _finalize(self) -> MinuteAggregate | None:
+    def _finalize(self, minute_mark: datetime) -> MinuteAggregate | None:
         if self._count == 0 or self._minute_start is None or self._energy_first is None or self._energy_last is None:
             return None
 
         averages = {field: self._sums[field] / self._count for field in FIELDS}
         energy_delta = self._energy_last - self._energy_first
         return MinuteAggregate(
-            minute_start=self._minute_start,
+            minute_mark=minute_mark,
+            bucket_hour=self._minute_start.replace(minute=0, second=0, microsecond=0),
             averages=averages,
             energy_last=self._energy_last,
             energy_delta=energy_delta,
