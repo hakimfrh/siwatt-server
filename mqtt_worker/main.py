@@ -80,7 +80,12 @@ class AggregationPipeline:
 
 		current_hour = floor_hour(dt)
 		if current_hour != aggregate.bucket_hour:
-			success, energy_delta = self._hourly.handle(device_id, aggregate.bucket_hour, current_hour)
+			success, energy_delta = self._hourly.handle(
+				device_id,
+				aggregate.bucket_hour,
+				current_hour,
+				aggregate.energy_last,
+			)
 			if not success:
 				return ProcessDecision(success=False)
 			if self._balance_mode == "hour" and energy_delta is not None:

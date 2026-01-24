@@ -186,6 +186,76 @@ class Repository:
             "energy_delta": energy_delta,
         }
 
+    def get_hourly_legacy(self, device_id: int, hour_start: datetime) -> dict | None:
+        prev_hour = hour_start - timedelta(hours=1)
+        hour_end = hour_start + timedelta(hours=1)
+        avg_query = """
+            SELECT
+                AVG(voltage) AS voltage,
+                AVG(current) AS current,
+                AVG(power) AS power,
+                AVG(frequency) AS frequency,
+                AVG(pf) AS pf,
+                COUNT(*) AS count
+            FROM data_minutely
+            WHERE device_id = %s AND datetime >= %s AND datetime < %s
+        """
+        prev_hourly_query = """
+            SELECT energy
+            FROM data_hourly
+            WHERE device_id = %s AND datetime = %s
+            LIMIT 1
+        """
+        prev_minutely_query = """
+            SELECT energy
+            FROM data_minutely
+            WHERE device_id = %s AND datetime >= %s AND datetime < %s
+            ORDER BY datetime ASC
+            LIMIT 1
+        """
+        curr_first_query = """
+            SELECT energy
+            FROM data_minutely
+            WHERE device_id = %s AND datetime >= %s AND datetime < %s
+            ORDER BY datetime ASC
+            LIMIT 1
+        """
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(avg_query, (device_id, hour_start, hour_end))
+                avg_row = cursor.fetchone()
+                if not avg_row or avg_row["count"] == 0:
+                    return None
+
+                cursor.execute(prev_hourly_query, (device_id, prev_hour))
+                prev_row = cursor.fetchone()
+                if not prev_row:
+                    cursor.execute(prev_minutely_query, (device_id, prev_hour, hour_start))
+                    prev_row = cursor.fetchone()
+                if not prev_row:
+                    return None
+
+                cursor.execute(curr_first_query, (device_id, hour_start, hour_end))
+                curr_first = cursor.fetchone()
+                if not curr_first:
+                    return None
+
+        energy_before = float(prev_row["energy"])
+        energy_after = float(curr_first["energy"])
+        energy_delta = round((energy_after - energy_before) * 1000) / 1000
+        averages = {
+            "voltage": float(avg_row["voltage"]),
+            "current": float(avg_row["current"]),
+            "power": float(avg_row["power"]),
+            "frequency": float(avg_row["frequency"]),
+            "pf": float(avg_row["pf"]),
+        }
+        return {
+            "averages": averages,
+            "energy_delta": energy_delta,
+            "energy_after": energy_after,
+        }
+
     def upsert_hourly(self, device_id: int, dt: datetime, averages: dict, energy_last: float, energy_delta: float) -> None:
         select_query = """
             SELECT id FROM data_hourly
