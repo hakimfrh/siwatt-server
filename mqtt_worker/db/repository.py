@@ -128,6 +128,19 @@ class Repository:
                         ),
                     )
 
+    def get_last_minutely(self, device_id: int) -> dict | None:
+        query = """
+            SELECT datetime, energy
+            FROM data_minutely
+            WHERE device_id = %s
+            ORDER BY datetime DESC
+            LIMIT 1
+        """
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (device_id,))
+                return cursor.fetchone()
+
     def get_hourly_from_minutely(self, device_id: int, hour_start: datetime) -> dict | None:
         hour_end = hour_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         avg_query = """

@@ -59,13 +59,25 @@ class AggregationPipeline:
 		if not aggregate:
 			return ProcessDecision(success=True)
 
+		energy_before = aggregate.energy_first
+		try:
+			last_row = self._repo.get_last_minutely(device_id)
+			if last_row:
+				last_dt = last_row["datetime"]
+				if last_dt.minute == aggregate.minute_mark.minute:
+					energy_before = float(last_row["energy"])
+		except Exception:
+			self._logger.exception("minutely_energy_before_failed", device_id=device_id)
+
+		energy_delta = round((aggregate.energy_last - energy_before) * 1000) / 1000
+
 		try:
 			self._repo.upsert_minutely(
 				device_id=device_id,
 				dt=aggregate.minute_mark,
 				averages=aggregate.averages,
 				energy_last=aggregate.energy_last,
-				energy_delta=aggregate.energy_delta,
+				energy_delta=energy_delta,
 			)
 		except Exception:
 			self._logger.exception("minutely_insert_failed", device_id=device_id)
@@ -73,7 +85,7 @@ class AggregationPipeline:
 
 		if self._balance_mode == "minute":
 			try:
-				self._repo.decrement_token_balance(device_id, aggregate.energy_delta)
+				self._repo.decrement_token_balance(device_id, energy_delta)
 			except Exception:
 				self._logger.exception("balance_minute_update_failed", device_id=device_id)
 				return ProcessDecision(success=False)
@@ -192,6 +204,7 @@ class Worker:
 		self._logger.info(
 			"buffer_processed",
 			device_code=device_code,
+			mqtt_datetime=payload.get("datetime"),
 			processed=result.processed,
 			remaining=result.remaining,
 		)

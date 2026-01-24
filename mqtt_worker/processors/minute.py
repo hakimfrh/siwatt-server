@@ -12,8 +12,8 @@ class MinuteAggregate:
     minute_mark: datetime
     bucket_hour: datetime
     averages: dict
+    energy_first: float
     energy_last: float
-    energy_delta: float
 
 
 class MinuteAggregator:
@@ -60,11 +60,10 @@ class MinuteAggregator:
             return None
 
         averages = {field: self._sums[field] / self._count for field in FIELDS}
-        energy_delta = self._energy_last - self._energy_first
         return MinuteAggregate(
             minute_mark=minute_mark,
             bucket_hour=self._minute_start.replace(minute=0, second=0, microsecond=0),
             averages=averages,
+            energy_first=self._energy_first,
             energy_last=self._energy_last,
-            energy_delta=energy_delta,
         )
