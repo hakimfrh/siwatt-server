@@ -64,7 +64,10 @@ class AggregationPipeline:
 			last_row = self._repo.get_last_minutely(device_id)
 			if last_row:
 				last_dt = last_row["datetime"]
-				if last_dt.minute == aggregate.minute_mark.minute:
+				# Use previous minute's energy as baseline if available
+				# This captures consumption between the last sample of previous minute
+				# and first sample of current minute
+				if last_dt < aggregate.minute_mark:
 					energy_before = float(last_row["energy"])
 		except Exception:
 			self._logger.exception("minutely_energy_before_failed", device_id=device_id)
