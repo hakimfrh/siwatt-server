@@ -12,3 +12,11 @@ def get_current_user(token = Depends(security)):
         return int(payload["sub"])
     except:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_current_user_refresh(token = Depends(security)):
+    try:
+        options = {"verify_exp": False}
+        payload = jwt.decode(token.credentials, JWT_SECRET, algorithms=["HS256"], options=options)
+        return int(payload["sub"])
+    except:
+        raise HTTPException(status_code=401, detail="Invalid token")
