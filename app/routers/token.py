@@ -291,7 +291,9 @@ def get_token_balance_data(
             
             # Determine point type
             if t != 0 or len(t_info['types']) > 0:
-                if 'correction' in t_info['types']:
+                if 'topup' in t_info['types']:
+                    pt = 'topup'
+                elif 'correction' in t_info['types']:
                     pt = 'correction'
                 else:
                     pt = 'topup'
@@ -356,7 +358,9 @@ def get_token_balance_data(
                 current_balance = 0.0
             
             if t != 0 or len(types) > 0:
-                if 'correction' in types:
+                if 'topup' in types:
+                    pt = 'topup'
+                elif 'correction' in types:
                     pt = 'correction'
                 else:
                     pt = 'topup'
@@ -368,8 +372,7 @@ def get_token_balance_data(
                 "usage": u,
                 "topup": t,
                 "balance": current_balance,
-                "type": pt,
-                "final_balance": current_balance
+                "type": pt
             })
 
     return {
