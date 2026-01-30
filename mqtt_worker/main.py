@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
@@ -224,8 +225,17 @@ class Worker:
 		host = os.getenv("MQTT_BROKER", "broker.emqx.io")
 		port = int(os.getenv("MQTT_PORT", "1883"))
 		client.connect(host, port, keepalive=60)
-		client.loop_forever()
-
-
+        
+		client.loop_start()
+		try:
+			while True:
+				try:
+					self._repo.update_devices_offline_status()
+				except Exception:
+					self._logger.exception("offline_status_update_failed")
+				time.sleep(5)
+		except KeyboardInterrupt:
+			self._logger.info("worker_stopping")
+			client.loop_stop()
 if __name__ == "__main__":
 	Worker().run()
