@@ -32,7 +32,7 @@ class Repository:
         query = """
             UPDATE devices
             SET is_active = 0
-            WHERE last_online < NOW() - INTERVAL 20 SECOND AND is_active = 1
+            WHERE (last_online < NOW() - INTERVAL 20 SECOND OR last_online IS NULL) AND is_active = 1
         """
         with get_connection() as conn:
             with conn.cursor() as cursor:
