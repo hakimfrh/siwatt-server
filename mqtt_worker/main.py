@@ -124,6 +124,7 @@ class Worker:
 		self._realtime = RealtimeProcessor(self._repo)
 		self._hourly = HourlyProcessor(self._repo)
 		self._pipelines: dict[str, AggregationPipeline] = {}
+		self._last_seen: dict[int, float] = {}
 		self._balance_mode = os.getenv("BALANCE_DECREASE_MODE", "minute").lower()
 		if self._balance_mode not in ("minute", "hour"):
 			self._balance_mode = "minute"
@@ -195,6 +196,8 @@ class Worker:
 		if not device:
 			return
 
+		self._last_seen[device["id"]] = time.time()
+
 		record = {
 			"username": username,
 			"device_code": device_code,
@@ -230,7 +233,14 @@ class Worker:
 		try:
 			while True:
 				try:
-					self._repo.update_devices_offline_status()
+					now = time.time()
+					offline_ids = [
+						device_id
+						for device_id, last_seen in self._last_seen.items()
+						if now - last_seen > 20
+					]
+					if offline_ids:
+						self._repo.update_devices_offline_status(offline_ids)
 				except Exception:
 					self._logger.exception("offline_status_update_failed")
 				time.sleep(5)

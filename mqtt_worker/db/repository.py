@@ -28,6 +28,19 @@ class Repository:
             with conn.cursor() as cursor:
                 cursor.execute(query, (dt, dt, device_id))
 
+    def update_devices_offline_status(self, device_ids: list[int]) -> None:
+        if not device_ids:
+            return
+        format_strings = ",".join(["%s"] * len(device_ids))
+        query = f"""
+            UPDATE devices
+            SET is_active = 0
+            WHERE id IN ({format_strings}) AND is_active = 1
+        """
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, tuple(device_ids))
+
     def update_devices_offline_status(self) -> None:
         query = """
             UPDATE devices
