@@ -7,7 +7,7 @@ from app.core.deps import get_current_user
 from app.models.device import Device
 from app.models.data_realtime import DataRealtime
 from app.models.data_hourly import DataHourly
-from app.schemas.device import DeviceCreate, DeviceListResponse
+from app.schemas.device import DeviceCreate, DeviceListResponse, DeviceUpdate, DeviceResponse
 from app.schemas.response import ApiResponse
 
 router = APIRouter(
@@ -22,6 +22,14 @@ def create_device(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
+    # Check if device exists
+    existing_device = db.query(Device).filter(Device.device_code == data.device_code).first()
+    if existing_device:
+        if existing_device.user_id == user_id:
+            raise HTTPException(status_code=400, detail="Device already added to your account")
+        else:
+            raise HTTPException(status_code=400, detail="Device code already registered by another user")
+
     device = Device(
         device_code=data.device_code,
         user_id=user_id,
@@ -37,6 +45,28 @@ def create_device(
         "message": "Device created",
         "data": device
     }
+
+@router.put("/{device_id}", response_model=ApiResponse[DeviceResponse])
+def update_device(
+    device_id: int,
+    data: DeviceUpdate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user)
+):
+    device = db.query(Device).filter(Device.id == device_id, Device.user_id == user_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    device.device_name = data.device_name
+    device.location = data.location
+    db.commit()
+    db.refresh(device)
+    
+    return ApiResponse(
+        code=200,
+        message="Device updated successfully",
+        data=device
+    )
 
 @router.get("", response_model=DeviceListResponse)
 def list_devices(

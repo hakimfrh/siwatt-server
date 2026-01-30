@@ -15,3 +15,14 @@ class UserResponse(BaseModel):
     full_name: str
     username: str
     email: str
+
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: str
+    email: EmailStr
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str

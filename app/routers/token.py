@@ -179,9 +179,7 @@ def get_token_balance_data(
 
     # Determine date range
     if not start_date:
-        start_date = date.today().replace(day=1)
-    
-    now = datetime.utcnow()
+        start_date = date.today() - timedelta(days=30)
     
     # Adjust end_date to include the full day or limit to last data
     if not end_date:
@@ -195,9 +193,46 @@ def get_token_balance_data(
     start_dt = datetime.combine(start_date, time.min)
     end_dt = datetime.combine(end_date, time.max)
     
+    # Calculate Initial Balance
+    initial_balance = 0.0
+    
+    # 1. Try to find the last transaction BEFORE start_dt
+    last_txn = db.query(TokenTransaction).filter(
+        TokenTransaction.device_id == device_id,
+        TokenTransaction.created_at < start_dt
+    ).order_by(TokenTransaction.created_at.desc()).first()
+
+    if last_txn:
+        # Calculate usage between last_txn and start_dt
+        gap_usage = db.query(func.sum(DataHourly.energy_hour)).filter(
+            DataHourly.device_id == device_id,
+            DataHourly.datetime > last_txn.created_at,
+            DataHourly.datetime < start_dt
+        ).scalar() or 0.0
+        
+        initial_balance = float(last_txn.final_balance or 0) - float(gap_usage)
+    else:
+        # 2. If not found, try to find the FIRST transaction AFTER start_dt
+        first_txn = db.query(TokenTransaction).filter(
+            TokenTransaction.device_id == device_id,
+            TokenTransaction.created_at >= start_dt
+        ).order_by(TokenTransaction.created_at.asc()).first()
+        
+        if first_txn:
+            # Backtrack from the first transaction's current_balance (balance before txn)
+            gap_usage = db.query(func.sum(DataHourly.energy_hour)).filter(
+                DataHourly.device_id == device_id,
+                DataHourly.datetime >= start_dt,
+                DataHourly.datetime < first_txn.created_at
+            ).scalar() or 0.0
+            
+            initial_balance = float(first_txn.current_balance or 0) + float(gap_usage)
+        else:
+            # Fallback: Start with 0.0 if no transactions exist in history or future
+            initial_balance = 0.0
+
+    current_balance = max(0.0, initial_balance)
     data_points = []
-    current_balance = 0.0
-    calculation_started = False
     
     if frequency == "day":
         # Group by Date
@@ -248,21 +283,20 @@ def get_token_balance_data(
             t_info = topup_map.get(day_str, {'amount': 0.0, 'types': set()})
             t = t_info['amount']
             
+            current_balance += t
+            current_balance -= u
+            
+            if current_balance < 0:
+                current_balance = 0.0
+            
             # Determine point type
             if t != 0 or len(t_info['types']) > 0:
                 if 'correction' in t_info['types']:
                     pt = 'correction'
                 else:
                     pt = 'topup'
-                calculation_started = True
-                current_balance += t
             else:
                 pt = 'usage'
-            
-            if calculation_started:
-                current_balance -= u
-            else:
-                current_balance = 0.0
 
             data_points.append({
                 "datetime": datetime.combine(day, time.min),
@@ -315,20 +349,19 @@ def get_token_balance_data(
             t = buckets[k]["topup"]
             types = buckets[k]["types"]
             
+            current_balance += t
+            current_balance -= u
+            
+            if current_balance < 0:
+                current_balance = 0.0
+            
             if t != 0 or len(types) > 0:
                 if 'correction' in types:
                     pt = 'correction'
                 else:
                     pt = 'topup'
-                calculation_started = True
-                current_balance += t
             else:
                 pt = 'usage'
-            
-            if calculation_started:
-                current_balance -= u
-            else:
-                current_balance = 0.0
             
             data_points.append({
                 "datetime": k,

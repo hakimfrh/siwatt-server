@@ -7,6 +7,10 @@ class DeviceCreate(BaseModel):
     device_name: str
     location: str
 
+class DeviceUpdate(BaseModel):
+    device_name: str
+    location: str
+
 class DeviceResponse(BaseModel):
     id: int
     device_code: str
@@ -18,6 +22,9 @@ class DeviceResponse(BaseModel):
     last_online: Optional[datetime] = None
     created_at: datetime
     
+    class Config:
+        from_attributes = True
+
 class DeviceListResponse(BaseModel):
     code: int
     message: str

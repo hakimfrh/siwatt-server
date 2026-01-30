@@ -3,12 +3,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi import Request
 from pydantic import BaseModel
-from app.routers import auth, token, dashboard, data_hourly
+from app.routers import auth, token, dashboard, data_hourly, profile
 from app.routers import device
 
 app = FastAPI(title="SIWATT API")
 
 app.include_router(auth.router)
+app.include_router(profile.router)
 app.include_router(device.router)
 app.include_router(token.router)
 app.include_router(dashboard.router)
