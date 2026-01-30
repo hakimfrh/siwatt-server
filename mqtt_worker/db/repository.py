@@ -41,15 +41,12 @@ class Repository:
             with conn.cursor() as cursor:
                 cursor.execute(query, tuple(device_ids))
 
-    def update_devices_offline_status(self) -> None:
-        query = """
-            UPDATE devices
-            SET is_active = 0
-            WHERE (last_online < NOW() - INTERVAL 20 SECOND OR last_online IS NULL) AND is_active = 1
-        """
+    def get_active_device_ids(self) -> list[int]:
+        query = "SELECT id FROM devices WHERE is_active = 1"
         with get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query)
+                return [row["id"] for row in cursor.fetchall()]
 
     def upsert_realtime(self, device_id: int, payload: dict, dt: datetime) -> None:
         update_query = """

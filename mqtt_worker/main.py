@@ -233,7 +233,12 @@ class Worker:
 		try:
 			while True:
 				try:
+					active_ids = self._repo.get_active_device_ids()
 					now = time.time()
+					for device_id in active_ids:
+						if device_id not in self._last_seen:
+							self._last_seen[device_id] = now
+					
 					offline_ids = [
 						device_id
 						for device_id, last_seen in self._last_seen.items()
@@ -241,6 +246,8 @@ class Worker:
 					]
 					if offline_ids:
 						self._repo.update_devices_offline_status(offline_ids)
+						for device_id in offline_ids:
+							self._last_seen.pop(device_id, None)
 				except Exception:
 					self._logger.exception("offline_status_update_failed")
 				time.sleep(5)
