@@ -41,8 +41,8 @@ def get_average_data(
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
     else:
-        # Default to the first active device if not specified
-        device = device_query.filter(Device.is_active == True).first()
+        raise HTTPException(status_code=404, detail="Device not found")
+        # device = device_query.filter(Device.is_active == True).first()
         if not device:
             # Fallback to any device if no active one, or return empty
              device = device_query.first()
@@ -113,8 +113,9 @@ def get_hourly_data(
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
     else:
+        raise HTTPException(status_code=404, detail="Device not found")
         # Default to the first active device if not specified
-        device = device_query.filter(Device.is_active == True).first()
+        # device = device_query.filter(Device.is_active == True).first()
         if not device:
             # Fallback to any device if no active one, or return empty
              device = device_query.first()

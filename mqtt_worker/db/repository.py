@@ -9,7 +9,7 @@ class Repository:
             SELECT d.id, d.device_code, d.user_id, u.username
             FROM devices d
             JOIN users u ON u.id = d.user_id
-            WHERE u.username = %s AND d.device_code = %s AND d.is_active = 1
+            WHERE u.username = %s AND d.device_code = %s
         """
         with get_connection() as conn:
             with conn.cursor() as cursor:
@@ -20,12 +20,23 @@ class Repository:
         query = """
             UPDATE devices
             SET last_online = %s,
-                up_time = TIMESTAMPDIFF(SECOND, created_at, %s)
+                up_time = TIMESTAMPDIFF(SECOND, created_at, %s),
+                is_active = 1
             WHERE id = %s
         """
         with get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (dt, dt, device_id))
+
+    def update_devices_offline_status(self) -> None:
+        query = """
+            UPDATE devices
+            SET is_active = 0
+            WHERE last_online < NOW() - INTERVAL 20 SECOND AND is_active = 1
+        """
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
 
     def upsert_realtime(self, device_id: int, payload: dict, dt: datetime) -> None:
         update_query = """

@@ -26,7 +26,8 @@ def get_dashboard_stats(
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
     else:
-        device = db.query(Device).filter(Device.user_id == user_id, Device.is_active == True).first()
+        raise HTTPException(status_code=404, detail="Device not found")
+        # device = db.query(Device).filter(Device.user_id == user_id, Device.is_active == True).first()
     
     avg_usage = 0.0
     token_balance = 0.0
