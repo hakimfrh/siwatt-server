@@ -16,7 +16,7 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)]
 )
 
-@router.post("")
+@router.post("", response_model=ApiResponse[DeviceResponse])
 def create_device(
     data: DeviceCreate,
     db: Session = Depends(get_db),
@@ -99,7 +99,7 @@ def list_devices(
         "data": devices
     }
 
-@router.get("/{id}")
+@router.get("/{id}", response_model=ApiResponse[DeviceResponse])
 def get_device(
     id: int,
     db: Session = Depends(get_db),
@@ -182,14 +182,14 @@ def get_device_realtime_data(
         "message": "Realtime data retrieved",
         "data": {
             "device_id": device.id,
-            "voltage": realtime.voltage if realtime else 0,
-            "current": realtime.current if realtime else 0,
-            "power": realtime.power if realtime else 0,
-            "frequency": realtime.frequency if realtime else 0,
-            "pf": realtime.pf if realtime else 0,
+            "voltage": float(realtime.voltage or 0) if realtime else 0.0,
+            "current": float(realtime.current or 0) if realtime else 0.0,
+            "power": float(realtime.power or 0) if realtime else 0.0,
+            "frequency": float(realtime.frequency or 0) if realtime else 0.0,
+            "pf": float(realtime.pf or 0) if realtime else 0.0,
             "updated_at": realtime.updated_at if realtime else None,
             "total_today": float(total_today or 0),
-            "is_online": device.is_active,
-            "up_time": device.up_time
+            "is_online": bool(device.is_active),
+            "up_time": int(device.up_time or 0)
         }
     }

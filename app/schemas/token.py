@@ -17,10 +17,10 @@ class TokenTransactionResponse(BaseModel):
     id: int
     device_id: int
     type: Optional[str] = 'topup'
-    amount_kwh: Decimal
-    price: Decimal
-    current_balance: Optional[Decimal] = None
-    final_balance: Optional[Decimal] = None
+    amount_kwh: float
+    price: float
+    current_balance: Optional[float] = None
+    final_balance: Optional[float] = None
     created_at: datetime
 
 class TokenTransactionListResponse(BaseModel):
@@ -31,8 +31,8 @@ class TokenTransactionListResponse(BaseModel):
     total_pages: Optional[int] = None
     current_page: Optional[int] = None
     data_per_page: Optional[int] = None
-    total_token_bought: Optional[Decimal] = None
-    total_price: Optional[Decimal] = None
+    total_token_bought: Optional[float] = None
+    total_price: Optional[float] = None
     data: Optional[List[TokenTransactionResponse]] = None
 
 class TokenBalanceGraphPoint(BaseModel):

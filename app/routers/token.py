@@ -62,7 +62,7 @@ def topup_token(
         "data": {
             "transaction_id": trx.id,
             "device_id": device.id,
-            "new_balance": device.token_balance
+            "new_balance": float(device.token_balance or 0)
         }
     }
 
@@ -106,7 +106,7 @@ def create_correction(
         "data": {
             "transaction_id": trx.id,
             "device_id": device.id,
-            "new_balance": device.token_balance
+            "new_balance": float(device.token_balance or 0)
         }
     }
 
@@ -372,7 +372,8 @@ def get_token_balance_data(
                 "usage": u,
                 "topup": t,
                 "balance": current_balance,
-                "type": pt
+                "type": pt,
+                # "final_balance": current_balance
             })
 
     return {
