@@ -9,3 +9,4 @@ python-jose[cryptography]
 fastapi-mail
 python-dotenv
 paho-mqtt
+firebase-admin

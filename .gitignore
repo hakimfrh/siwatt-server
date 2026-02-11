@@ -24,3 +24,6 @@ Thumbs.db
 mqtt_worker/data/buffer/
 mqtt_worker/data/buffer/**
 mqtt_worker/data/buffer/bad/
+
+# Firebase credentials
+firebase-credentials.json
