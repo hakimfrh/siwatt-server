@@ -41,6 +41,7 @@ def send_notification_to_topic(
             data=data or {},
             topic=topic,
             android=messaging.AndroidConfig(
+                channel_id="high_importance_channel",
                 priority="high"
             )
         )
