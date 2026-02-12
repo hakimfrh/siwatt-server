@@ -40,6 +40,9 @@ def send_notification_to_topic(
             ),
             data=data or {},
             topic=topic,
+            android=messaging.AndroidConfig(
+                priority="high"
+            )
         )
         
         # Kirim message
