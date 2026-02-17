@@ -5,4 +5,4 @@ def generate_otp():
     return str(random.randint(100000, 999999))
 
 def otp_expiry():
-    return datetime.utcnow() + timedelta(minutes=5)
+    return datetime.now() + timedelta(minutes=5)

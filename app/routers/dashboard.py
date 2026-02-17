@@ -37,7 +37,7 @@ def get_dashboard_stats(
         token_balance = float(device.token_balance or 0)
         
         # Calculate Average Usage Today (Watts)
-        today = datetime.utcnow().date()
+        today = datetime.now().date()
         today_start = datetime(today.year, today.month, today.day)
         
         avg_power = db.query(func.avg(DataHourly.power))\
@@ -50,7 +50,7 @@ def get_dashboard_stats(
             
         # Calculate Estimated Days (Simple projection fallback)
         # Using last 7 days average for better stability
-        last_7_days = datetime.utcnow() - timedelta(days=7)
+        last_7_days = datetime.now() - timedelta(days=7)
         total_energy_7days = db.query(func.sum(DataHourly.energy_hour))\
             .filter(DataHourly.device_id == device.id)\
             .filter(DataHourly.datetime >= last_7_days)\

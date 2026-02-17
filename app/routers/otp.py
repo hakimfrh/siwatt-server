@@ -39,7 +39,7 @@ def verify_otp(email: str, otp: str, db: Session = Depends(get_db)):
         EmailOTP.is_used == False
     ).first()
 
-    if not record or record.expires_at < datetime.utcnow():
+    if not record or record.expires_at < datetime.now():
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     record.is_used = True

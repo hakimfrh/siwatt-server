@@ -169,7 +169,7 @@ def get_device_realtime_data(
     realtime = db.query(DataRealtime).filter(DataRealtime.device_id == id).first()
     
     # Calculate total energy today
-    today = datetime.utcnow().date()
+    today = datetime.now().date()
     today_start = datetime(today.year, today.month, today.day)
     
     total_today = db.query(func.sum(DataHourly.energy_hour))\

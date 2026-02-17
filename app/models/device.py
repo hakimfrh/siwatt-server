@@ -15,7 +15,7 @@ class Device(Base):
     is_active = Column(Boolean, default=True)
     up_time = Column(Integer, default=0)
     last_online = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
     
     data_hourly = relationship(
         "DataHourly",

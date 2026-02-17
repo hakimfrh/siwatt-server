@@ -26,7 +26,7 @@ def get_average_data(
 ):
     # Determine date range (default to today if not provided)
     if not start_date:
-        start_date = datetime.utcnow().date()
+        start_date = datetime.now().date()
     if not end_date:
         end_date = start_date
 
@@ -98,7 +98,7 @@ def get_hourly_data(
 ):
     # Determine date range (default to today if not provided)
     if not start_date:
-        start_date = datetime.utcnow().date()
+        start_date = datetime.now().date()
     if not end_date:
         end_date = start_date
 

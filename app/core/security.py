@@ -17,7 +17,7 @@ def verify_password(password: str, hashed: str):
     return pwd_context.verify(password, hashed)
 
 def create_access_token(user_id: int):
-    expire = datetime.utcnow() + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    expire = datetime.now() + timedelta(minutes=JWT_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
         "exp": expire

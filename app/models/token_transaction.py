@@ -13,4 +13,4 @@ class TokenTransaction(Base):
     price = Column(Numeric(12,2))
     current_balance = Column(Numeric(12,4))
     final_balance = Column(Numeric(12,4))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
