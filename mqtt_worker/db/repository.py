@@ -49,34 +49,21 @@ class Repository:
                 return [row["id"] for row in cursor.fetchall()]
 
     def upsert_realtime(self, device_id: int, payload: dict, dt: datetime) -> None:
-        update_query = """
-            UPDATE data_realtime
-            SET voltage = %s,
-                current = %s,
-                power = %s,
-                energy = %s,
-                frequency = %s,
-                pf = %s,
-                updated_at = %s
-            WHERE device_id = %s
-        """
-        insert_query = """
+        query = """
             INSERT INTO data_realtime
                 (device_id, voltage, current, power, energy, frequency, pf, updated_at)
             VALUES
                 (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                voltage = VALUES(voltage),
+                current = VALUES(current),
+                power = VALUES(power),
+                energy = VALUES(energy),
+                frequency = VALUES(frequency),
+                pf = VALUES(pf),
+                updated_at = VALUES(updated_at)
         """
         values = (
-            payload["voltage"],
-            payload["current"],
-            payload["power"],
-            payload["energy"],
-            payload["frequency"],
-            payload["pf"],
-            dt,
-            device_id,
-        )
-        insert_values = (
             device_id,
             payload["voltage"],
             payload["current"],
@@ -88,9 +75,7 @@ class Repository:
         )
         with get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(update_query, values)
-                if cursor.rowcount == 0:
-                    cursor.execute(insert_query, insert_values)
+                cursor.execute(query, values)
 
     def upsert_minutely(self, device_id: int, dt: datetime, averages: dict, energy_last: float, energy_delta: float) -> None:
         select_query = """
