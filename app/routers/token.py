@@ -139,6 +139,11 @@ def list_token_transactions(
     # Calculate totals from fetched data
     total_bought = sum((t.amount_kwh for t in all_transactions if t.amount_kwh is not None and t.type == 'topup'))
     total_price = sum((t.price for t in all_transactions if t.price is not None and t.type == 'topup'))
+    
+    # Calculate 30-day totals
+    thirty_days_ago = datetime.combine(date.today() - timedelta(days=30), time.min)
+    total_bought_30days = sum((t.amount_kwh for t in all_transactions if t.amount_kwh is not None and t.type == 'topup' and t.created_at >= thirty_days_ago))
+    total_price_30days = sum((t.price for t in all_transactions if t.price is not None and t.type == 'topup' and t.created_at >= thirty_days_ago))
 
     # Pagination
     if limit == -1:
@@ -161,6 +166,8 @@ def list_token_transactions(
         "data_per_page": limit,
         "total_token_bought": total_bought,
         "total_price": total_price,
+        "total_token_bought_30days": total_bought_30days,
+        "total_price_30days": total_price_30days,
         "data": transactions
     }
 

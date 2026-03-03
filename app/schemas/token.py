@@ -33,6 +33,8 @@ class TokenTransactionListResponse(BaseModel):
     data_per_page: Optional[int] = None
     total_token_bought: Optional[float] = None
     total_price: Optional[float] = None
+    total_token_bought_30days: Optional[float] = None
+    total_price_30days: Optional[float] = None
     data: Optional[List[TokenTransactionResponse]] = None
 
 class TokenBalanceGraphPoint(BaseModel):
