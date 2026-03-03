@@ -1,48 +1,153 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
-from app.core.mail import fm
-from fastapi_mail import MessageSchema
+from app.core.deps import get_current_user
+from app.core.mailjet import mailjet, MAILJET_SENDER_EMAIL, MAILJET_SENDER_NAME
 from app.models.otp import EmailOTP
-from app.utils.otp import generate_otp, otp_expiry
+from app.models.user import User
+from app.schemas.response import ApiResponse
+from app.schemas.otp import (
+    VerifyOtpRequest,
+    SendOtpData,
+    VerifyOtpData,
+    MailjetMessageDetail,
+)
+from app.utils.otp import generate_otp, otp_expiry, build_otp_html
 
-router = APIRouter(prefix="/auth")
+router = APIRouter(prefix="/auth", tags=["OTP"])
 
-@router.post("/send-otp")
-async def send_otp(email: str, db: Session = Depends(get_db)):
-    otp = generate_otp()
 
-    db.add(EmailOTP(
-        email=email,
-        otp_code=otp,
-        expires_at=otp_expiry()
-    ))
-    db.commit()
+# ── POST /auth/send-otp ─────────────────────────
+@router.post("/send-otp", response_model=ApiResponse[SendOtpData])
+def send_otp(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    # ambil user dari token
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
-    message = MessageSchema(
-        subject="Your SIWATT OTP Code",
-        recipients=[email],
-        body=f"Your OTP is {otp}. It expires in 5 minutes.",
-        subtype="plain"
+    # cek apakah masih ada OTP aktif (belum expired & belum dipakai)
+    active_otp = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.user_id == user.id,
+            EmailOTP.is_used == False,
+            EmailOTP.expires_at > datetime.now(),
+        )
+        .first()
     )
 
-    await fm.send_message(message)
+    if active_otp:
+        raise HTTPException(
+            status_code=429,
+            detail="OTP sebelumnya masih berlaku. Silakan tunggu hingga kadaluarsa atau gunakan OTP yang sudah dikirim.",
+        )
 
-    return {"message": "OTP sent"}
+    otp_code = generate_otp()
+    expires_at = otp_expiry()
 
-@router.post("/verify-otp")
-def verify_otp(email: str, otp: str, db: Session = Depends(get_db)):
-    record = db.query(EmailOTP).filter(
-        EmailOTP.email == email,
-        EmailOTP.otp_code == otp,
-        EmailOTP.is_used == False
-    ).first()
+    # simpan ke database
+    otp_record = EmailOTP(
+        user_id=user.id,
+        email=user.email,
+        otp_code=otp_code,
+        expires_at=expires_at,
+    )
+    db.add(otp_record)
+    db.commit()
+    db.refresh(otp_record)
 
-    if not record or record.expires_at < datetime.now():
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # kirim email via Mailjet
+    html_content = build_otp_html(otp_code)
+
+    data = {
+        "Messages": [
+            {
+                "From": {
+                    "Email": MAILJET_SENDER_EMAIL,
+                    "Name": MAILJET_SENDER_NAME,
+                },
+                "To": [{"Email": user.email}],
+                "Subject": "Kode OTP SIWATT",
+                "TextPart": f"Kode OTP kamu adalah {otp_code}",
+                "HTMLPart": html_content,
+            }
+        ]
+    }
+
+    result = mailjet.send.create(data=data)
+
+    if result.status_code != 200:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Gagal mengirim email via Mailjet",
+                "mailjet_error": result.json(),
+            },
+        )
+
+    # ambil info dari response Mailjet
+    mj_messages = result.json().get("Messages", [{}])
+    mj_first = mj_messages[0] if mj_messages else {}
+    mj_to = mj_first.get("To", [{}])
+    mj_to_first = mj_to[0] if mj_to else {}
+
+    mailjet_detail = MailjetMessageDetail(
+        status=mj_first.get("Status", "unknown"),
+        message_id=mj_to_first.get("MessageID"),
+        message_uuid=mj_to_first.get("MessageUUID"),
+        message_href=mj_to_first.get("MessageHref"),
+    )
+
+    return {
+        "code": 200,
+        "message": "OTP berhasil dikirim",
+        "data": {
+            "otp_id": otp_record.id,
+            "email": user.email,
+            "expires_at": expires_at,
+            "mailjet": mailjet_detail,
+        },
+    }
+
+
+# ── POST /auth/verify-otp ───────────────────────
+@router.post("/verify-otp", response_model=ApiResponse[VerifyOtpData])
+def verify_otp(
+    body: VerifyOtpRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    record = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.id == body.otp_id,
+            EmailOTP.otp_code == body.otp_code,
+            EmailOTP.user_id == user_id,
+            EmailOTP.is_used == False,
+        )
+        .first()
+    )
+
+    if not record:
+        raise HTTPException(status_code=400, detail="OTP tidak ditemukan atau sudah digunakan")
+
+    if record.expires_at < datetime.now():
+        raise HTTPException(status_code=400, detail="OTP sudah kadaluarsa")
 
     record.is_used = True
     db.commit()
 
-    return {"message": "OTP verified"}
+    return {
+        "code": 200,
+        "message": "OTP berhasil diverifikasi",
+        "data": {
+            "otp_id": record.id,
+            "verified": True,
+        },
+    }
+

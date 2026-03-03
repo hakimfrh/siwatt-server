@@ -1,7 +1,10 @@
+import json
 import os
 import time
+from datetime import datetime
 from typing import Optional, Tuple
 
+import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
 
 from mqtt_worker.db.repository import Repository
@@ -39,6 +42,14 @@ class AggregationPipeline:
 		self._last_processed_dt = None
 		self._balance_mode = balance_mode
 
+	def reset_datetime_state(self):
+		"""Reset referensi waktu di pipeline.
+		Dipanggil setelah sync-rtc dikirim, agar data dengan waktu
+		yang sudah dikoreksi tidak di-drop oleh pengecekan dt <= _last_processed_dt.
+		"""
+		self._last_processed_dt = None
+		self._minute_agg = MinuteAggregator()
+
 	def handle(self, record: dict) -> ProcessDecision:
 		try:
 			payload = record["payload"]
@@ -74,6 +85,18 @@ class AggregationPipeline:
 			self._logger.exception("minutely_energy_before_failed", device_id=device_id)
 
 		energy_delta = round((aggregate.energy_last - energy_before) * 1000) / 1000
+
+		# Clamp: jika energy_delta negatif (misal PZEM di-reset), set 0
+		# Tanpa ini, delta negatif bisa menambah saldo token
+		if energy_delta < 0:
+			self._logger.warning(
+				"energy_delta_negative",
+				device_id=device_id,
+				energy_delta=energy_delta,
+				energy_before=energy_before,
+				energy_last=aggregate.energy_last,
+			)
+			energy_delta = 0.0
 
 		try:
 			self._repo.upsert_minutely(
@@ -114,6 +137,15 @@ class AggregationPipeline:
 		return ProcessDecision(success=True, checkpoint_offset=-1)
 
 
+# Batas toleransi datetime dari device
+_DATETIME_MAX_FUTURE_SECONDS = 120     # Maks 2 menit di depan waktu server
+_DATETIME_MAX_PAST_SECONDS = 300       # Maks 5 menit di belakang waktu server
+_DATETIME_MIN_YEAR = 2024              # Tahun minimum yang valid
+_DATETIME_MAX_YEAR = 2027              # Tahun maksimum yang valid
+_SYNC_COMMAND_COOLDOWN = 60            # Cooldown kirim sync-rtc (detik)
+_DATETIME_BACKWARD_TOLERANCE = 5       # Toleransi waktu mundur (detik)
+
+
 class Worker:
 	def __init__(self):
 		self._logger = get_logger(__name__)
@@ -128,6 +160,9 @@ class Worker:
 		self._balance_mode = os.getenv("BALANCE_DECREASE_MODE", "minute").lower()
 		if self._balance_mode not in ("minute", "hour"):
 			self._balance_mode = "minute"
+		self._mqtt_client: Optional[mqtt.Client] = None
+		self._last_valid_dt: dict[str, datetime] = {}       # device_code → last valid datetime
+		self._last_sync_cmd: dict[str, float] = {}           # device_code → last sync command time
 
 	@staticmethod
 	def _parse_topic(topic: str) -> Optional[Tuple[str, str]]:
@@ -196,6 +231,10 @@ class Worker:
 		if not device:
 			return
 
+		# Validasi datetime dari device
+		if not self._validate_device_datetime(username, device_code, payload):
+			return
+
 		self._last_seen[device["id"]] = time.time()
 
 		record = {
@@ -216,11 +255,114 @@ class Worker:
 			remaining=result.remaining,
 		)
 
+	def _validate_device_datetime(
+		self, username: str, device_code: str, payload: dict
+	) -> bool:
+		"""Validasi datetime dari device. Return False jika abnormal (data di-drop + kirim sync-rtc)."""
+		try:
+			device_dt = parse_datetime(payload["datetime"])
+		except Exception:
+			self._logger.warning(
+				"datetime_parse_failed",
+				device_code=device_code,
+				raw_datetime=payload.get("datetime"),
+			)
+			self._send_sync_rtc(username, device_code, "datetime parse failed")
+			return False
+
+		now = datetime.now()
+		reason = None
+
+		# Cek 1: Tahun di luar range wajar (contoh kasus: tahun 2036)
+		if device_dt.year < _DATETIME_MIN_YEAR or device_dt.year > _DATETIME_MAX_YEAR:
+			reason = f"year out of range: {device_dt.year} (valid: {_DATETIME_MIN_YEAR}-{_DATETIME_MAX_YEAR})"
+
+		# Cek 2: Terlalu jauh di masa depan dibanding waktu server
+		elif (device_dt - now).total_seconds() > _DATETIME_MAX_FUTURE_SECONDS:
+			diff = (device_dt - now).total_seconds()
+			reason = f"datetime {diff:.0f}s ahead of server time"
+
+		# Cek 3: Terlalu jauh di masa lalu dibanding waktu server
+		elif (now - device_dt).total_seconds() > _DATETIME_MAX_PAST_SECONDS:
+			diff = (now - device_dt).total_seconds()
+			reason = f"datetime {diff:.0f}s behind server time"
+
+		# Cek 4: Waktu mundur dari data sebelumnya (RTC loncat ke belakang)
+		elif device_code in self._last_valid_dt:
+			prev_dt = self._last_valid_dt[device_code]
+			if (prev_dt - device_dt).total_seconds() > _DATETIME_BACKWARD_TOLERANCE:
+				diff = (prev_dt - device_dt).total_seconds()
+				reason = f"datetime went backward by {diff:.0f}s (prev: {prev_dt}, now: {device_dt})"
+
+		if reason:
+			self._logger.warning(
+				"datetime_abnormal",
+				device_code=device_code,
+				device_datetime=str(device_dt),
+				server_datetime=str(now),
+				reason=reason,
+			)
+			# Hapus referensi waktu lama agar setelah sync,
+			# data dengan waktu yang sudah dikoreksi tidak dianggap "mundur"
+			self._last_valid_dt.pop(device_code, None)
+			self._send_sync_rtc(username, device_code, reason)
+			return False
+
+		# Datetime valid, simpan sebagai referensi
+		self._last_valid_dt[device_code] = device_dt
+		return True
+
+	def _send_sync_rtc(self, username: str, device_code: str, reason: str) -> None:
+		"""Kirim command sync-rtc ke device via MQTT (dengan cooldown)."""
+		if not self._mqtt_client:
+			return
+
+		now = time.time()
+		last_sent = self._last_sync_cmd.get(device_code, 0)
+
+		if now - last_sent < _SYNC_COMMAND_COOLDOWN:
+			return  # Masih dalam cooldown, jangan spam device
+
+		# Topic command: /siwatt-mqtt/{username}/swm-cmd/{device_code}
+		if TOPIC_MODE == "simple":
+			cmd_topic = f"{username}/swm-cmd/{device_code}"
+		else:
+			cmd_topic = f"/siwatt-mqtt/{username}/swm-cmd/{device_code}"
+
+		cmd_payload = json.dumps({"cmd": "sync-rtc"})
+
+		try:
+			self._mqtt_client.publish(cmd_topic, cmd_payload)
+			self._last_sync_cmd[device_code] = now
+
+			# Reset pipeline agar data dengan waktu koreksi tidak di-drop
+			# Scenario: device clock maju 90 detik (masih dalam toleransi)
+			# → pipeline._last_processed_dt = waktu maju
+			# → sync-rtc dikirim → device koreksi waktu mundur 90 detik
+			# → tanpa reset, pipeline akan drop semua data selama 90 detik
+			pipeline = self._pipelines.get(device_code)
+			if pipeline:
+				pipeline.reset_datetime_state()
+				self._logger.info(
+					"pipeline_datetime_reset",
+					device_code=device_code,
+				)
+
+			self._logger.info(
+				"sync_rtc_command_sent",
+				device_code=device_code,
+				topic=cmd_topic,
+				reason=reason,
+			)
+		except Exception:
+			self._logger.exception("sync_rtc_command_failed", device_code=device_code)
+
 	def run(self) -> None:
 		self._logger.info("worker_starting")
 		self._recovery.replay_all(lambda device_code: self._get_pipeline(device_code).handle)
 
 		client = create_client()
+		self._mqtt_client = client  # Simpan referensi untuk publish command
 		subscriber = Subscriber(TOPIC_WILDCARD, self._handle_message)
 		client.on_connect = subscriber.on_connect
 		client.on_message = subscriber.on_message

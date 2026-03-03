@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi import Request
 from pydantic import BaseModel
 from app.routers import auth, token, dashboard, data_hourly, profile
-from app.routers import device, notification
+from app.routers import device, notification, otp
 
 app = FastAPI(title="SIWATT API")
 
@@ -15,6 +15,7 @@ app.include_router(token.router)
 app.include_router(dashboard.router)
 app.include_router(data_hourly.router)
 app.include_router(notification.router)
+app.include_router(otp.router)
 
 @app.get("/")
 def root():
