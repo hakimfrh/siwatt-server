@@ -16,17 +16,17 @@ class Repository:
                 cursor.execute(query, (username, device_code))
                 return cursor.fetchone()
 
-    def update_device_online(self, device_id: int, dt: datetime) -> None:
+    def update_device_online(self, device_id: int, dt: datetime, uptime: int = 0) -> None:
         query = """
             UPDATE devices
             SET last_online = %s,
-                up_time = TIMESTAMPDIFF(SECOND, created_at, %s),
+                up_time = %s,
                 is_active = 1
             WHERE id = %s
         """
         with get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (dt, dt, device_id))
+                cursor.execute(query, (dt, uptime, device_id))
 
     def update_devices_offline_status(self, device_ids: list[int]) -> None:
         if not device_ids:

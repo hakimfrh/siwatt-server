@@ -12,7 +12,8 @@ class RealtimeProcessor:
     def handle(self, device_id: int, payload: dict, dt: datetime) -> bool:
         try:
             self._repo.upsert_realtime(device_id, payload, dt)
-            self._repo.update_device_online(device_id, dt)
+            uptime = int(payload.get("uptime", 0))
+            self._repo.update_device_online(device_id, dt, uptime)
             return True
         except Exception:
             self._logger.exception("realtime_update_failed", device_id=device_id)
