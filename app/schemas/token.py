@@ -47,5 +47,6 @@ class TokenBalanceGraphPoint(BaseModel):
 
 class TokenBalanceGraphResponse(BaseModel):
     code: int
+    token_balance: float
     message: str
     data: List[TokenBalanceGraphPoint]

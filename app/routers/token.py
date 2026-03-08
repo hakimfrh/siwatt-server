@@ -385,6 +385,7 @@ def get_token_balance_data(
 
     return {
         "code": 200,
+        "token_balance": float(device.token_balance or 0),
         "message": "Token balance graph data retrieved",
         "data": data_points
     }
