@@ -84,6 +84,9 @@ def send_otp(
     result = mailjet.send.create(data=data)
 
     if result.status_code != 200:
+        # Hapus OTP dari database agar user bisa kirim ulang
+        db.delete(otp_record)
+        db.commit()
         raise HTTPException(
             status_code=500,
             detail={
