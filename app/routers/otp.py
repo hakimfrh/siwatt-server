@@ -10,11 +10,13 @@ from app.models.user import User
 from app.schemas.response import ApiResponse
 from app.schemas.otp import (
     VerifyOtpRequest,
+    ResetPasswordRequest,
     SendOtpData,
     VerifyOtpData,
     MailjetMessageDetail,
 )
 from app.utils.otp import generate_otp, otp_expiry, build_otp_html
+from app.core.security import hash_password
 
 router = APIRouter(prefix="/auth", tags=["OTP"])
 
@@ -116,6 +118,8 @@ def send_otp(
 
 
 # ── POST /auth/verify-otp ───────────────────────
+# Hanya mengecek apakah OTP valid, TANPA menandainya sebagai terpakai.
+# Digunakan sebelum halaman reset password.
 @router.post("/verify-otp", response_model=ApiResponse[VerifyOtpData])
 def verify_otp(
     body: VerifyOtpRequest,
@@ -139,15 +143,60 @@ def verify_otp(
     if record.expires_at < datetime.now():
         raise HTTPException(status_code=400, detail="OTP sudah kadaluarsa")
 
+    # Hanya kembalikan status tanpa mengubah is_used
+    return {
+        "code": 200,
+        "message": "OTP valid",
+        "data": {
+            "otp_id": record.id,
+            "is_valid": True,
+            "expiration_time": record.expires_at,
+        },
+    }
+
+
+# ── POST /auth/reset-password ────────────────────
+# OTP digunakan dan password di-update di sini.
+@router.post("/reset-password", response_model=ApiResponse)
+def reset_password(
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    # Cari OTP yang valid
+    record = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.id == body.otp_id,
+            EmailOTP.otp_code == body.otp_code,
+            EmailOTP.user_id == user_id,
+            EmailOTP.is_used == False,
+        )
+        .first()
+    )
+
+    if not record:
+        raise HTTPException(status_code=400, detail="OTP tidak ditemukan atau sudah digunakan")
+
+    if record.expires_at < datetime.now():
+        raise HTTPException(status_code=400, detail="OTP sudah kadaluarsa")
+
+    # Ambil user dari database
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
+    # Tandai OTP sebagai sudah digunakan
     record.is_used = True
+
+    # Update password dengan enkripsi
+    user.password = hash_password(body.new_password)
+
     db.commit()
 
     return {
         "code": 200,
-        "message": "OTP berhasil diverifikasi",
-        "data": {
-            "otp_id": record.id,
-            "verified": True,
-        },
+        "message": "Password berhasil direset",
+        "data": None,
     }
 

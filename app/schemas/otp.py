@@ -10,6 +10,12 @@ class VerifyOtpRequest(BaseModel):
     otp_code: str
 
 
+class ResetPasswordRequest(BaseModel):
+    otp_id: int
+    otp_code: str
+    new_password: str
+
+
 # ── Response data ────────────────────────────────
 
 class MailjetMessageDetail(BaseModel):
@@ -34,7 +40,8 @@ class SendOtpData(BaseModel):
 
 class VerifyOtpData(BaseModel):
     otp_id: int
-    verified: bool
+    is_valid: bool
+    expiration_time: datetime
 
     class Config:
         from_attributes = True
