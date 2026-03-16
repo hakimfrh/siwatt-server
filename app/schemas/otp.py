@@ -5,12 +5,18 @@ from datetime import datetime
 
 # ── Request ──────────────────────────────────────
 
+class SendOtpRequest(BaseModel):
+    email: str
+
+
 class VerifyOtpRequest(BaseModel):
+    email: str
     otp_id: int
     otp_code: str
 
 
 class ResetPasswordRequest(BaseModel):
+    email: str
     otp_id: int
     otp_code: str
     new_password: str
