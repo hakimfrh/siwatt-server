@@ -8,6 +8,9 @@ pydantic[email]
 python-jose[cryptography]
 fastapi-mail
 mailjet-rest
-python-dotenv
 paho-mqtt
 firebase-admin
+numpy
+pandas
+scikit-learn
+tensorflow

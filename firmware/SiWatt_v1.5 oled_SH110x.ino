@@ -523,6 +523,7 @@ void loop() {
         display.print("Time Error");
         display.display();
       }
+      readPzem();  // Tetap baca PZEM untuk update error count, tapi tidak publish
     }
 
     refreshDisplay();
@@ -1165,7 +1166,7 @@ void updateWiFiSignal() {
 }
 
 void refreshDisplay() {
-  display.fillRect(0, 10, 120, 64 - 10, BLACK);
+  display.fillRect(0, 10, 128, 64 - 10, BLACK);
 
   switch (screenPage) {
     // ===== PAGE 0: Sensor Data =====
@@ -1550,6 +1551,7 @@ void onButtonLong() {
           delay(2000);
 
           screenIndex = 0;
+          display.clearDisplay();
           refreshDisplay();
         } else {
           // Back → menu, cursor di "Sync RTC"

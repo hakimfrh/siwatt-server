@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -45,9 +46,17 @@ def send_otp(
     )
 
     if active_otp:
-        raise HTTPException(
+        return JSONResponse(
             status_code=429,
-            detail="OTP sebelumnya masih berlaku. Silakan tunggu hingga kadaluarsa.",
+            content={
+                "code": 429,
+                "message": "OTP sebelumnya masih berlaku. Silakan tunggu hingga kadaluarsa.",
+                "data": {
+                    "otp_id": active_otp.id,
+                    "email": active_otp.email,
+                    "expires_at": active_otp.expires_at.isoformat(),
+                },
+            },
         )
 
     otp_code = generate_otp()
