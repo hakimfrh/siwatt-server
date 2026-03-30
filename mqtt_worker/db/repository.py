@@ -1,9 +1,21 @@
+import json
+import os
+import re
 from datetime import datetime, timedelta
 
 from mqtt_worker.db.connection import get_connection
 
 
+_TABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 class Repository:
+    def __init__(self):
+        table_name = os.getenv("ML_PREDICTIONS_TABLE", "predictions").strip()
+        if not table_name or not _TABLE_NAME_RE.fullmatch(table_name):
+            table_name = "predictions"
+        self._predictions_table = table_name
+
     def get_device(self, username: str, device_code: str) -> dict | None:
         query = """
             SELECT d.id, d.device_code, d.user_id, u.username
@@ -341,3 +353,41 @@ class Repository:
         with get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (amount, device_id))
+
+    def enqueue_prediction_job(self, device_id: int, prediction_type: str, history_end: datetime) -> bool:
+        if prediction_type not in ("hourly", "daily"):
+            raise ValueError("prediction_type must be 'hourly' or 'daily'")
+
+        history_end_value = history_end.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S")
+        params_payload = json.dumps({"history_end": history_end_value}, ensure_ascii=False, separators=(",", ":"))
+
+        insert_query = f"""
+            INSERT INTO {self._predictions_table}
+                (user_id, device_id, type, status, params, created_at)
+            SELECT d.user_id, d.id, %s, %s, %s, NOW()
+            FROM devices d
+            WHERE d.id = %s
+              AND NOT EXISTS (
+                SELECT 1
+                FROM {self._predictions_table}
+                WHERE user_id = d.user_id
+                  AND device_id = d.id
+                  AND type = %s
+                  AND params = %s
+            )
+        """
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    insert_query,
+                    (
+                        prediction_type,
+                        "pending",
+                        params_payload,
+                        device_id,
+                        prediction_type,
+                        params_payload,
+                    ),
+                )
+                return int(cursor.rowcount or 0) > 0

@@ -25,6 +25,32 @@ TOPIC_WILDCARD = os.getenv("MQTT_TOPIC_WILDCARD", "/siwatt-mqtt/+/swm-raw/+")
 TOPIC_MODE = os.getenv("MQTT_TOPIC_MODE", "prefixed").lower()
 
 
+def _is_enabled(value: str | None, default: bool = False) -> bool:
+	if value is None:
+		return default
+	return value.strip().lower() in {"enable", "enabled", "true", "1", "yes", "on"}
+
+
+def _parse_trigger_time(value: str | None, default_hour: int, default_minute: int) -> tuple[int, int]:
+	if value is None:
+		return default_hour, default_minute
+
+	text = value.strip()
+	if text == "":
+		return default_hour, default_minute
+
+	try:
+		hour_text, minute_text = text.split(":", 1)
+		hour = int(hour_text)
+		minute = int(minute_text)
+		if 0 <= hour <= 23 and 0 <= minute <= 59:
+			return hour, minute
+	except Exception:
+		pass
+
+	return default_hour, default_minute
+
+
 class AggregationPipeline:
 	def __init__(
 		self,
@@ -33,6 +59,10 @@ class AggregationPipeline:
 		hourly: HourlyProcessor,
 		logger,
 		balance_mode: str,
+		prediction_hourly_enabled: bool,
+		prediction_hourly_trigger: tuple[int, int],
+		prediction_daily_enabled: bool,
+		prediction_daily_trigger: tuple[int, int],
 	):
 		self._repo = repo
 		self._realtime = realtime
@@ -41,6 +71,32 @@ class AggregationPipeline:
 		self._minute_agg = MinuteAggregator()
 		self._last_processed_dt = None
 		self._balance_mode = balance_mode
+		self._prediction_hourly_enabled = prediction_hourly_enabled
+		self._prediction_hourly_trigger = prediction_hourly_trigger
+		self._prediction_daily_enabled = prediction_daily_enabled
+		self._prediction_daily_trigger = prediction_daily_trigger
+
+	@staticmethod
+	def _is_trigger_match(hour_mark: datetime, trigger: tuple[int, int]) -> bool:
+		return hour_mark.hour == trigger[0] and hour_mark.minute == trigger[1]
+
+	def _enqueue_prediction_job(self, device_id: int, prediction_type: str, history_end: datetime) -> None:
+		try:
+			inserted = self._repo.enqueue_prediction_job(device_id, prediction_type, history_end)
+			if inserted:
+				self._logger.info(
+					"prediction_job_enqueued",
+					device_id=device_id,
+					prediction_type=prediction_type,
+					history_end=history_end.strftime("%Y-%m-%dT%H:%M:%S"),
+				)
+		except Exception:
+			self._logger.exception(
+				"prediction_job_enqueue_failed",
+				device_id=device_id,
+				prediction_type=prediction_type,
+				history_end=history_end.strftime("%Y-%m-%dT%H:%M:%S"),
+			)
 
 	def reset_datetime_state(self):
 		"""Reset referensi waktu di pipeline.
@@ -134,6 +190,13 @@ class AggregationPipeline:
 					self._logger.exception("balance_hour_update_failed", device_id=device_id)
 					return ProcessDecision(success=False)
 
+			if energy_delta is not None:
+				if self._prediction_hourly_enabled and self._is_trigger_match(current_hour, self._prediction_hourly_trigger):
+					self._enqueue_prediction_job(device_id, "hourly", current_hour)
+
+				if self._prediction_daily_enabled and self._is_trigger_match(current_hour, self._prediction_daily_trigger):
+					self._enqueue_prediction_job(device_id, "daily", current_hour)
+
 		return ProcessDecision(success=True, checkpoint_offset=-1)
 
 
@@ -160,6 +223,20 @@ class Worker:
 		self._balance_mode = os.getenv("BALANCE_DECREASE_MODE", "minute").lower()
 		if self._balance_mode not in ("minute", "hour"):
 			self._balance_mode = "minute"
+
+		self._prediction_hourly_enabled = _is_enabled(os.getenv("PREDICTION_HOURLY", "disable"))
+		self._prediction_daily_enabled = _is_enabled(os.getenv("PREDICTION_DAILY", "disable"))
+		self._prediction_hourly_trigger = _parse_trigger_time(
+			os.getenv("PREDICTION_HOURLY_TRIGGER", "23:00"),
+			23,
+			0,
+		)
+		self._prediction_daily_trigger = _parse_trigger_time(
+			os.getenv("PREDICTION_DAILY_TRIGGER", "00:00"),
+			0,
+			0,
+		)
+
 		self._mqtt_client: Optional[mqtt.Client] = None
 		self._last_valid_dt: dict[str, datetime] = {}       # device_code → last valid datetime
 		self._last_sync_cmd: dict[str, float] = {}           # device_code → last sync command time
@@ -201,6 +278,10 @@ class Worker:
 			self._hourly,
 			self._logger,
 			self._balance_mode,
+			self._prediction_hourly_enabled,
+			self._prediction_hourly_trigger,
+			self._prediction_daily_enabled,
+			self._prediction_daily_trigger,
 		)
 		self._pipelines[device_code] = pipeline
 		return pipeline
