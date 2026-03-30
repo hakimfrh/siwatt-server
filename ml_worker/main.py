@@ -67,6 +67,14 @@ class PredictionWorker:
             return self.daily_predictor.predict(rows, params)
         raise ValueError(f"Unsupported prediction type: {job_type}")
 
+    def _resolve_model_metadata(self, job_type: str) -> tuple[str, str]:
+        normalized_type = job_type.strip().lower()
+        if normalized_type == "hourly":
+            return "hourly", str(self.hourly_predictor.model_path)
+        if normalized_type == "daily":
+            return "daily", str(self.daily_predictor.model_path)
+        raise ValueError(f"Unsupported prediction type: {job_type}")
+
     @staticmethod
     def _build_result_payload(
         job: PredictionJob,
@@ -93,6 +101,8 @@ class PredictionWorker:
 
         progress_percentage = 5
         progress_info = "claimed"
+        model_used = job.job_type.strip().lower()
+        model_path: str | None = None
 
         self.logger.info(
             "prediction_job_claimed",
@@ -105,6 +115,7 @@ class PredictionWorker:
         )
 
         try:
+            model_used, model_path = self._resolve_model_metadata(job.job_type)
             params = job.params or {}
             history_hours = get_int_param(
                 params,
@@ -138,7 +149,13 @@ class PredictionWorker:
 
             progress_percentage = 20
             progress_info = "cleaning_data"
-            self.repo.update_progress(job.id, progress_percentage, progress_info)
+            self.repo.update_progress(
+                job.id,
+                progress_percentage,
+                progress_info,
+                model_used=model_used,
+                model_path=model_path,
+            )
             rows = self.repo.fetch_hourly_energy(
                 device_id=job.device_id,
                 limit_hours=limit_hours,
@@ -150,15 +167,32 @@ class PredictionWorker:
 
             progress_percentage = 60
             progress_info = "predicting"
-            self.repo.update_progress(job.id, progress_percentage, progress_info)
+            self.repo.update_progress(
+                job.id,
+                progress_percentage,
+                progress_info,
+                model_used=model_used,
+                model_path=model_path,
+            )
             prediction = self._run_predictor(job.job_type, rows, params)
 
             progress_percentage = 90
             progress_info = "saving_result"
-            self.repo.update_progress(job.id, progress_percentage, progress_info)
+            self.repo.update_progress(
+                job.id,
+                progress_percentage,
+                progress_info,
+                model_used=model_used,
+                model_path=model_path,
+            )
             device_context = self.repo.get_device_context(job.device_id)
             result_payload = self._build_result_payload(job, device_context, prediction)
-            self.repo.mark_done(job.id, result_payload)
+            self.repo.mark_done(
+                job.id,
+                result_payload,
+                model_used=model_used,
+                model_path=model_path,
+            )
 
             self.logger.info(
                 "prediction_job_done",
@@ -177,6 +211,8 @@ class PredictionWorker:
                     error_message,
                     percentage=progress_percentage,
                     info=f"error:{progress_info}",
+                    model_used=model_used,
+                    model_path=model_path,
                 )
             except Exception:
                 self.logger.exception("prediction_mark_error_failed", extra={"job_id": job.id})

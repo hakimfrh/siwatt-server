@@ -66,11 +66,20 @@ class PredictionRepository:
         raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
     @staticmethod
-    def _progress_payload(percentage: int, info: str) -> str:
+    def _progress_payload(
+        percentage: int,
+        info: str,
+        model_used: str | None = None,
+        model_path: str | None = None,
+    ) -> str:
         payload = {
             "percentage": max(0, min(100, int(percentage))),
             "info": info,
         }
+        if model_used is not None:
+            payload["model_used"] = model_used
+        if model_path is not None:
+            payload["model_path"] = model_path
         return json.dumps(payload, ensure_ascii=False)
 
     def _require_train_table(self) -> str:
@@ -123,7 +132,14 @@ class PredictionRepository:
             created_at=row.get("created_at"),
         )
 
-    def update_progress(self, job_id: int, percentage: int, info: str) -> None:
+    def update_progress(
+        self,
+        job_id: int,
+        percentage: int,
+        info: str,
+        model_used: str | None = None,
+        model_path: str | None = None,
+    ) -> None:
         query = f"""
             UPDATE {self._table}
             SET progress = %s
@@ -131,9 +147,26 @@ class PredictionRepository:
         """
         with get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (self._progress_payload(percentage, info), job_id))
+                cursor.execute(
+                    query,
+                    (
+                        self._progress_payload(
+                            percentage,
+                            info,
+                            model_used=model_used,
+                            model_path=model_path,
+                        ),
+                        job_id,
+                    ),
+                )
 
-    def mark_done(self, job_id: int, result_payload: dict[str, Any]) -> None:
+    def mark_done(
+        self,
+        job_id: int,
+        result_payload: dict[str, Any],
+        model_used: str | None = None,
+        model_path: str | None = None,
+    ) -> None:
         query = f"""
             UPDATE {self._table}
             SET status = %s,
@@ -151,13 +184,26 @@ class PredictionRepository:
                     query,
                     (
                         "done",
-                        self._progress_payload(100, "done"),
+                        self._progress_payload(
+                            100,
+                            "done",
+                            model_used=model_used,
+                            model_path=model_path,
+                        ),
                         payload,
                         job_id,
                     ),
                 )
 
-    def mark_error(self, job_id: int, message: str, percentage: int = 100, info: str = "error") -> None:
+    def mark_error(
+        self,
+        job_id: int,
+        message: str,
+        percentage: int = 100,
+        info: str = "error",
+        model_used: str | None = None,
+        model_path: str | None = None,
+    ) -> None:
         query = f"""
             UPDATE {self._table}
             SET status = %s,
@@ -173,7 +219,12 @@ class PredictionRepository:
                     query,
                     (
                         "error",
-                        self._progress_payload(percentage, info),
+                        self._progress_payload(
+                            percentage,
+                            info,
+                            model_used=model_used,
+                            model_path=model_path,
+                        ),
                         message[:2000],
                         job_id,
                     ),
