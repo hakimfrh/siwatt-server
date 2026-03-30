@@ -25,5 +25,9 @@ mqtt_worker/data/buffer/
 mqtt_worker/data/buffer/**
 mqtt_worker/data/buffer/bad/
 
+ml_worker/retrained/**
+ml_worker/retrained/daily/**
+ml_worker/retrained/hourly/**
+
 # Firebase credentials
 firebase-credentials.json
