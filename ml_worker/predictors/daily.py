@@ -75,7 +75,6 @@ class DailyPredictor:
         features["dayofyear"] = dt_index.dayofyear.astype(float)
         features["doy_sin"] = np.sin(2 * np.pi * dt_index.dayofyear / 365)
         features["doy_cos"] = np.cos(2 * np.pi * dt_index.dayofyear / 365)
-        features["lag7"] = features["energy_hour"].shift(7)
         return features.dropna()
 
     @staticmethod
@@ -88,7 +87,6 @@ class DailyPredictor:
             "dayofyear",
             "doy_sin",
             "doy_cos",
-            "lag7",
         ]
 
         if feature_count > len(ordered_columns):
@@ -129,10 +127,6 @@ class DailyPredictor:
         if daily_df.empty:
             raise ValueError("No daily data available after aggregation")
 
-        features = self._engineer_features(daily_df)
-        if features.empty:
-            raise ValueError("Not enough daily history after lag feature engineering")
-
         model = self._get_model()
 
         input_shape = model.input_shape
@@ -152,6 +146,10 @@ class DailyPredictor:
         max_horizon = int(output_shape[-1])
 
         feature_columns = self._select_feature_columns(feature_count)
+        features = self._engineer_features(daily_df)
+        if features.empty:
+            raise ValueError("Not enough daily history after feature engineering")
+
         model_frame = features[feature_columns]
 
         if len(model_frame) < window_size:

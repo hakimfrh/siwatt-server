@@ -1,12 +1,16 @@
+import json
+from datetime import date, datetime
+from typing import Any, Optional
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.device import Device
 from app.models.data_realtime import DataRealtime
 from app.models.data_hourly import DataHourly
+from app.models.prediction import Prediction
 from app.schemas.device import DeviceCreate, DeviceListResponse, DeviceUpdate, DeviceResponse
 from app.schemas.response import ApiResponse
 
@@ -15,6 +19,28 @@ router = APIRouter(
     tags=["Devices"],
     dependencies=[Depends(get_current_user)]
 )
+
+
+def _normalize_prediction_result(raw_value: Any) -> Any:
+    if raw_value is None:
+        return None
+
+    if isinstance(raw_value, (dict, list)):
+        return raw_value
+
+    if isinstance(raw_value, (bytes, bytearray)):
+        raw_value = raw_value.decode("utf-8", errors="ignore")
+
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if text == "":
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return raw_value
+
+    return raw_value
 
 @router.post("", response_model=ApiResponse[DeviceResponse])
 def create_device(
@@ -193,3 +219,64 @@ def get_device_realtime_data(
             "up_time": int(device.up_time or 0)
         }
     }
+
+@router.get("/{id}/prediction")
+def get_prediction(
+    id: int,
+    date_filter: Optional[date] = Query(None, alias="date"),
+    prediction_type: str = Query(..., alias="type", regex="^(daily|hourly)$"),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user)
+):
+    device = db.query(Device).filter(
+        Device.id == id,
+        Device.user_id == user_id
+    ).first()
+
+    if not device:
+        return {
+            "code": 404,
+            "message": "Device not found",
+            "data": None
+        }
+
+    query = db.query(Prediction).filter(
+        Prediction.user_id == user_id,
+        Prediction.device_id == id,
+        Prediction.job_type == prediction_type,
+    )
+
+    if date_filter is not None:
+        query = query.filter(func.date(Prediction.created_at) == date_filter)
+
+    prediction_row = query.order_by(Prediction.created_at.desc(), Prediction.id.desc()).first()
+
+    if not prediction_row:
+        return {
+            "code": 404,
+            "message": "prediction notfound",
+            "data": "prediction notfound"
+        }
+
+    if (prediction_row.status or "").lower() == "error":
+        return {
+            "code": 200,
+            "message": "error",
+            "data": "error"
+        }
+
+    result_data = _normalize_prediction_result(prediction_row.result)
+
+    if result_data is None:
+        return {
+            "code": 404,
+            "message": "prediction notfound",
+            "data": "prediction notfound"
+        }
+
+    return {
+        "code": 200,
+        "message": "Prediction retrieved",
+        "data": result_data
+    }
+

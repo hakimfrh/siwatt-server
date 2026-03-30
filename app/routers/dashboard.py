@@ -34,7 +34,7 @@ def get_dashboard_stats(
     estimated_days = 0
 
     if device:
-        token_balance = float(device.token_balance or 0)
+        token_balance = float(device.token_balance or 0) # type: ignore
         
         # Calculate Average Usage Today (Watts)
         today = datetime.now().date()
