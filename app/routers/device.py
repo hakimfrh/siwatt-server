@@ -174,7 +174,7 @@ def delete_device(
 
     user_password = getattr(user, "password", None)
     if not user_password or not verify_password(data.password, user_password):
-        raise HTTPException(status_code=401, detail="Invalid password")
+        raise HTTPException(status_code=405, detail="Invalid password")
 
     db.delete(device)
     db.commit()
