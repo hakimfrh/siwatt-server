@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.security import verify_password
 from app.models.device import Device
 from app.models.data_realtime import DataRealtime
 from app.models.data_hourly import DataHourly
 from app.models.prediction import Prediction
-from app.schemas.device import DeviceCreate, DeviceListResponse, DeviceUpdate, DeviceResponse
+from app.models.user import User
+from app.schemas.device import DeviceCreate, DeviceListResponse, DeviceUpdate, DeviceResponse, DeviceDeleteRequest
 from app.schemas.response import ApiResponse
 
 router = APIRouter(
@@ -151,6 +153,7 @@ def get_device(
 @router.delete("/{id}")
 def delete_device(
     id: int,
+    data: DeviceDeleteRequest,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
@@ -164,6 +167,14 @@ def delete_device(
             "message": "Device not found",
             "data": None
         }
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_password = getattr(user, "password", None)
+    if not user_password or not verify_password(data.password, user_password):
+        raise HTTPException(status_code=401, detail="Invalid password")
 
     db.delete(device)
     db.commit()

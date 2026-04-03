@@ -11,6 +11,9 @@ class DeviceUpdate(BaseModel):
     device_name: str
     location: str
 
+class DeviceDeleteRequest(BaseModel):
+    password: str
+
 class DeviceResponse(BaseModel):
     id: int
     device_code: str
