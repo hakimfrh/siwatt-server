@@ -1,6 +1,9 @@
+import json
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 from dotenv import load_dotenv
 
@@ -39,6 +42,149 @@ class PredictionWorker:
         )
         self.retrainer = AutoRetrainer(self.config, self.repo, self.logger)
         self._sync_latest_models_from_train_log()
+
+    @staticmethod
+    def _calculate_estimated_days_from_daily_prediction(
+        token_balance: float,
+        prediction_result: dict[str, Any],
+        reference_date: date,
+    ) -> tuple[int, bool]:
+        raw_predictions = prediction_result.get("predictions")
+        if not isinstance(raw_predictions, list):
+            return 0, False
+
+        usable_predictions: list[tuple[date, float]] = []
+        for item in raw_predictions:
+            if not isinstance(item, dict):
+                continue
+
+            raw_date = item.get("date")
+            raw_energy_day = item.get("energy_day")
+            if raw_date is None or raw_energy_day is None:
+                continue
+
+            try:
+                prediction_date = datetime.fromisoformat(str(raw_date)).date()
+                energy_day = float(raw_energy_day)
+            except (TypeError, ValueError):
+                continue
+
+            if prediction_date < reference_date or energy_day <= 0:
+                continue
+
+            usable_predictions.append((prediction_date, energy_day))
+
+        if not usable_predictions:
+            return 0, False
+
+        usable_predictions.sort(key=lambda value: value[0])
+
+        estimated_days = 0
+        remaining_balance = token_balance
+        for _, energy_day in usable_predictions:
+            if remaining_balance < energy_day:
+                break
+            remaining_balance -= energy_day
+            estimated_days += 1
+
+        exceeded_prediction_horizon = estimated_days == len(usable_predictions) and remaining_balance > 0
+        return estimated_days, exceeded_prediction_horizon
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _send_daily_prediction_notification_once(
+        self,
+        job: PredictionJob,
+        prediction: dict[str, Any],
+        device_context: dict[str, Any] | None,
+    ) -> None:
+        if not self.config.notify_daily_prediction:
+            return
+
+        if not self.config.notify_url:
+            self.logger.warning("daily_notification_skipped_missing_url", extra={"job_id": job.id})
+            return
+
+        if not self.config.notify_api_secret:
+            self.logger.warning("daily_notification_skipped_missing_secret", extra={"job_id": job.id})
+            return
+
+        if self.repo.is_daily_notification_sent(job.id):
+            self.logger.info("daily_notification_already_sent", extra={"job_id": job.id})
+            return
+
+        token_balance = self._to_float((device_context or {}).get("token_balance"), default=0.0)
+        estimated_days, exceeded_prediction_horizon = self._calculate_estimated_days_from_daily_prediction(
+            token_balance=token_balance,
+            prediction_result=prediction,
+            reference_date=datetime.now().date(),
+        )
+        estimated_days_display = f"{estimated_days}+" if exceeded_prediction_horizon else str(estimated_days)
+
+        device_name = str((device_context or {}).get("device_name") or f"Device {job.device_id}")
+        title = "Prediksi Harian SiWatt"
+        body = (
+            f"Prediksi harian untuk {device_name} selesai. "
+            f"Perkiraan sisa masa aktif token: {estimated_days_display} hari."
+        )
+        payload = {
+            "title": title,
+            "body": body,
+            "user_id": job.user_id,
+            "data": {
+                "type": "daily-prediction",
+                "prediction_job_id": str(job.id),
+                "device_id": str(job.device_id),
+                "estimated_days": str(estimated_days),
+                "estimated_days_display": estimated_days_display,
+                "estimated_days_overflow": "1" if exceeded_prediction_horizon else "0",
+                "remaining_token_kwh": f"{token_balance:.3f}",
+                "token_balance": f"{token_balance:.3f}",
+            },
+        }
+
+        request_body = json.dumps(payload).encode("utf-8")
+        req = urlrequest.Request(
+            self.config.notify_url,
+            data=request_body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Api-Secret": self.config.notify_api_secret,
+            },
+        )
+
+        try:
+            with urlrequest.urlopen(req, timeout=self.config.notify_timeout_seconds) as response:
+                response_text = response.read().decode("utf-8", errors="ignore")
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"Notification API returned {response.status}: {response_text}")
+        except (urlerror.URLError, urlerror.HTTPError, RuntimeError):
+            self.logger.exception(
+                "daily_notification_failed",
+                extra={
+                    "job_id": job.id,
+                    "url": self.config.notify_url,
+                },
+            )
+            return
+
+        self.repo.mark_daily_notification_sent(job.id)
+        self.logger.info(
+            "daily_notification_sent",
+            extra={
+                "job_id": job.id,
+                "user_id": job.user_id,
+                "device_id": job.device_id,
+                "estimated_days": estimated_days,
+                "estimated_days_display": estimated_days_display,
+            },
+        )
 
     def _sync_latest_models_from_train_log(self) -> None:
         try:
@@ -202,6 +348,13 @@ class PredictionWorker:
                     "horizon": prediction.get("horizon"),
                 },
             )
+
+            if model_used == "daily":
+                self._send_daily_prediction_notification_once(
+                    job=job,
+                    prediction=prediction,
+                    device_context=device_context,
+                )
         except Exception as exc:
             error_message = str(exc)
             self.logger.exception("prediction_job_failed", extra={"job_id": job.id})
@@ -228,6 +381,8 @@ class PredictionWorker:
                 "predictions_table": self.config.predictions_table,
                 "hourly_model_path": str(self.config.hourly_model_path),
                 "daily_model_path": str(self.config.daily_model_path),
+                "notify_daily_prediction": self.config.notify_daily_prediction,
+                "notify_url": self.config.notify_url,
             },
         )
 

@@ -81,6 +81,10 @@ class WorkerConfig:
     retrain_batch_size: int
     retrain_min_hourly_rows: int
     retrain_min_daily_rows: int
+    notify_daily_prediction: bool
+    notify_url: str
+    notify_api_secret: str
+    notify_timeout_seconds: int
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -134,4 +138,8 @@ class WorkerConfig:
             retrain_batch_size=_env_int("ML_RETRAIN_BATCH_SIZE", default=16, min_value=1),
             retrain_min_hourly_rows=_env_int("ML_RETRAIN_MIN_HOURLY_ROWS", default=24 * 30, min_value=24),
             retrain_min_daily_rows=_env_int("ML_RETRAIN_MIN_DAILY_ROWS", default=90, min_value=14),
+            notify_daily_prediction=_env_bool("ML_NOTIFY_DAILY_PREDICTION", default=True),
+            notify_url=os.getenv("ML_NOTIFICATION_URL", "http://127.0.0.1:8000/notification/test").strip(),
+            notify_api_secret=os.getenv("ML_NOTIFICATION_API_SECRET", os.getenv("TESTING_API_SECRET", "")).strip(),
+            notify_timeout_seconds=_env_int("ML_NOTIFICATION_TIMEOUT_SECONDS", default=5, min_value=1),
         )

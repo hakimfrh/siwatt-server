@@ -230,6 +230,66 @@ class PredictionRepository:
                     ),
                 )
 
+    def is_daily_notification_sent(self, job_id: int) -> bool:
+        query = f"""
+            SELECT progress
+            FROM {self._table}
+            WHERE id = %s
+            LIMIT 1
+        """
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (job_id,))
+                row = cursor.fetchone()
+
+        if row is None:
+            return False
+
+        progress_data = self._parse_params(row.get("progress"))
+        return bool(progress_data.get("daily_notification_sent") is True)
+
+    def mark_daily_notification_sent(self, job_id: int) -> None:
+        select_query = f"""
+            SELECT `type`, status, progress
+            FROM {self._table}
+            WHERE id = %s
+            LIMIT 1
+            FOR UPDATE
+        """
+        update_query = f"""
+            UPDATE {self._table}
+            SET progress = %s
+            WHERE id = %s
+        """
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(select_query, (job_id,))
+                row = cursor.fetchone()
+                if row is None:
+                    return
+
+                if str(row.get("type", "")).strip().lower() != "daily":
+                    return
+
+                if str(row.get("status", "")).strip().lower() != "done":
+                    return
+
+                progress_data = self._parse_params(row.get("progress"))
+                progress_data["daily_notification_sent"] = True
+                progress_data["daily_notification_sent_at"] = datetime.utcnow().isoformat() + "Z"
+
+                if "percentage" not in progress_data:
+                    progress_data["percentage"] = 100
+                if "info" not in progress_data:
+                    progress_data["info"] = "done"
+
+                cursor.execute(
+                    update_query,
+                    (json.dumps(progress_data, ensure_ascii=False), job_id),
+                )
+
     def fetch_hourly_energy(
         self,
         device_id: int,
@@ -281,7 +341,7 @@ class PredictionRepository:
 
     def get_device_context(self, device_id: int) -> dict[str, Any] | None:
         query = """
-            SELECT d.id, d.user_id, d.device_code, d.device_name, u.username
+            SELECT d.id, d.user_id, d.device_code, d.device_name, d.token_balance, u.username
             FROM devices d
             LEFT JOIN users u ON u.id = d.user_id
             WHERE d.id = %s

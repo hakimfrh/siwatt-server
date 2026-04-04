@@ -49,7 +49,7 @@ def _calculate_estimated_days_from_daily_prediction(
     token_balance: float,
     prediction_result: Any,
     reference_date: date
-) -> Optional[int]:
+) -> Optional[tuple[int, bool]]:
     result_data = _normalize_prediction_result(prediction_result)
     if not isinstance(result_data, dict):
         return None
@@ -96,7 +96,8 @@ def _calculate_estimated_days_from_daily_prediction(
         remaining_balance -= energy_day
         estimated_days += 1
 
-    return estimated_days
+    exceeded_prediction_horizon = estimated_days == len(usable_predictions) and remaining_balance > 0
+    return estimated_days, exceeded_prediction_horizon
 
 
 def _calculate_estimated_days_from_average_7d(
@@ -134,6 +135,7 @@ def get_dashboard_stats(
     avg_usage = 0.0
     token_balance = 0.0
     estimated_days = 0
+    estimated_days_display = "0"
 
     if device:
         token_balance = float(device.token_balance or 0) # type: ignore
@@ -156,6 +158,7 @@ def get_dashboard_stats(
                 device_id=device.id,
                 token_balance=token_balance
             )
+            estimated_days_display = str(estimated_days)
         else:
             # prediction mode
             daily_prediction = db.query(Prediction).filter(
@@ -172,7 +175,8 @@ def get_dashboard_stats(
                     reference_date=today
                 )
                 if estimated_from_prediction is not None:
-                    estimated_days = estimated_from_prediction
+                    estimated_days, exceeded_prediction_horizon = estimated_from_prediction
+                    estimated_days_display = f"{estimated_days}+" if exceeded_prediction_horizon else str(estimated_days)
 
     return {
         "code": 200,
@@ -180,6 +184,7 @@ def get_dashboard_stats(
         "data": {
             "avg_usage_today": round(avg_usage, 2),
             "token_balance": round(token_balance, 2),
-            "estimated_days": estimated_days
+            "estimated_days": estimated_days,
+            "estimated_days_display": estimated_days_display
         }
     }
