@@ -130,6 +130,7 @@ class PredictionWorker:
         title = "Prediksi Harian SiWatt"
         body = (
             f"Prediksi harian untuk {device_name} selesai. "
+            f"Sisa token saat ini: {token_balance:.3f} kWh. "
             f"Perkiraan sisa masa aktif token: {estimated_days_display} hari."
         )
         payload = {
