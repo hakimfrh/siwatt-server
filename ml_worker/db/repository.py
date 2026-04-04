@@ -1,7 +1,8 @@
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from ml_worker.db.connection import get_connection
@@ -61,8 +62,10 @@ class PredictionRepository:
 
     @staticmethod
     def _json_default(value: Any):
-        if isinstance(value, datetime):
+        if isinstance(value, (datetime, date)):
             return value.isoformat()
+        if isinstance(value, Decimal):
+            return float(value)
         raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
     @staticmethod
