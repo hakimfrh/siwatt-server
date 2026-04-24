@@ -2,7 +2,7 @@ import json
 import os
 import time
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
@@ -51,6 +51,42 @@ def _parse_trigger_time(value: str | None, default_hour: int, default_minute: in
 	return default_hour, default_minute
 
 
+def _parse_positive_float(value: str | None, default: float) -> float:
+	if value is None:
+		return default
+
+	text = value.strip()
+	if text == "":
+		return default
+
+	try:
+		parsed = float(text)
+		if parsed > 0:
+			return parsed
+	except Exception:
+		pass
+
+	return default
+
+
+def _parse_min_int(value: str | None, default: int, minimum: int) -> int:
+	if value is None:
+		return default
+
+	text = value.strip()
+	if text == "":
+		return default
+
+	try:
+		parsed = int(text)
+		if parsed >= minimum:
+			return parsed
+	except Exception:
+		pass
+
+	return default
+
+
 class AggregationPipeline:
 	def __init__(
 		self,
@@ -63,6 +99,7 @@ class AggregationPipeline:
 		prediction_hourly_trigger: tuple[int, int],
 		prediction_daily_enabled: bool,
 		prediction_daily_trigger: tuple[int, int],
+		pzem_overflow_after_hourly_handler: Optional[Callable[[str, str, float], bool]] = None,
 	):
 		self._repo = repo
 		self._realtime = realtime
@@ -75,6 +112,9 @@ class AggregationPipeline:
 		self._prediction_hourly_trigger = prediction_hourly_trigger
 		self._prediction_daily_enabled = prediction_daily_enabled
 		self._prediction_daily_trigger = prediction_daily_trigger
+		self._pzem_overflow_after_hourly_handler = pzem_overflow_after_hourly_handler
+		self._ignore_previous_energy_reference = False
+		self._skip_hourly_transition_once = False
 
 	@staticmethod
 	def _is_trigger_match(hour_mark: datetime, trigger: tuple[int, int]) -> bool:
@@ -106,11 +146,22 @@ class AggregationPipeline:
 		self._last_processed_dt = None
 		self._minute_agg = MinuteAggregator()
 
+	def mark_energy_reset_event(self):
+		"""Reset state agregasi setelah device reset energi ke 0 kWh.
+		Ini mencegah pembacaan baru ikut baseline jam/menit sebelumnya.
+		"""
+		self._last_processed_dt = None
+		self._minute_agg = MinuteAggregator()
+		self._ignore_previous_energy_reference = True
+		self._skip_hourly_transition_once = True
+
 	def handle(self, record: dict) -> ProcessDecision:
 		try:
 			payload = record["payload"]
 			dt = parse_datetime(payload["datetime"])
 			device_id = record["device_id"]
+			username = record["username"]
+			device_code = record["device_code"]
 		except Exception:
 			self._logger.exception("record_parse_failed", record=record)
 			return ProcessDecision(success=False)
@@ -128,17 +179,20 @@ class AggregationPipeline:
 			return ProcessDecision(success=True)
 
 		energy_before = aggregate.energy_first
-		try:
-			last_row = self._repo.get_last_minutely(device_id)
-			if last_row:
-				last_dt = last_row["datetime"]
-				# Use previous minute's energy as baseline if available
-				# This captures consumption between the last sample of previous minute
-				# and first sample of current minute
-				if last_dt < aggregate.minute_mark:
-					energy_before = float(last_row["energy"])
-		except Exception:
-			self._logger.exception("minutely_energy_before_failed", device_id=device_id)
+		if self._ignore_previous_energy_reference:
+			self._ignore_previous_energy_reference = False
+		else:
+			try:
+				last_row = self._repo.get_last_minutely(device_id)
+				if last_row:
+					last_dt = last_row["datetime"]
+					# Use previous minute's energy as baseline if available
+					# This captures consumption between the last sample of previous minute
+					# and first sample of current minute
+					if last_dt < aggregate.minute_mark:
+						energy_before = float(last_row["energy"])
+			except Exception:
+				self._logger.exception("minutely_energy_before_failed", device_id=device_id)
 
 		energy_delta = round((aggregate.energy_last - energy_before) * 1000) / 1000
 
@@ -175,27 +229,38 @@ class AggregationPipeline:
 
 		current_hour = floor_hour(dt)
 		if current_hour != aggregate.bucket_hour:
-			success, energy_delta = self._hourly.handle(
-				device_id,
-				aggregate.bucket_hour,
-				current_hour,
-				aggregate.energy_last,
-			)
-			if not success:
-				return ProcessDecision(success=False)
-			if self._balance_mode == "hour" and energy_delta is not None:
-				try:
-					self._repo.decrement_token_balance(device_id, energy_delta)
-				except Exception:
-					self._logger.exception("balance_hour_update_failed", device_id=device_id)
+			hourly_saved = False
+			if self._skip_hourly_transition_once:
+				self._skip_hourly_transition_once = False
+			else:
+				success, energy_delta = self._hourly.handle(
+					device_id,
+					aggregate.bucket_hour,
+					current_hour,
+					aggregate.energy_last,
+				)
+				if not success:
 					return ProcessDecision(success=False)
+				hourly_saved = energy_delta is not None
+				if self._balance_mode == "hour" and energy_delta is not None:
+					try:
+						self._repo.decrement_token_balance(device_id, energy_delta)
+					except Exception:
+						self._logger.exception("balance_hour_update_failed", device_id=device_id)
+						return ProcessDecision(success=False)
 
-			if energy_delta is not None:
-				if self._prediction_hourly_enabled and self._is_trigger_match(current_hour, self._prediction_hourly_trigger):
-					self._enqueue_prediction_job(device_id, "hourly", current_hour)
+				if energy_delta is not None:
+					if self._prediction_hourly_enabled and self._is_trigger_match(current_hour, self._prediction_hourly_trigger):
+						self._enqueue_prediction_job(device_id, "hourly", current_hour)
 
-				if self._prediction_daily_enabled and self._is_trigger_match(current_hour, self._prediction_daily_trigger):
-					self._enqueue_prediction_job(device_id, "daily", current_hour)
+					if self._prediction_daily_enabled and self._is_trigger_match(current_hour, self._prediction_daily_trigger):
+						self._enqueue_prediction_job(device_id, "daily", current_hour)
+
+			if hourly_saved and self._pzem_overflow_after_hourly_handler:
+				try:
+					self._pzem_overflow_after_hourly_handler(username, device_code, aggregate.energy_last)
+				except Exception:
+					self._logger.exception("pzem_overflow_after_hourly_handler_failed", device_code=device_code)
 
 		return ProcessDecision(success=True, checkpoint_offset=-1)
 
@@ -236,10 +301,21 @@ class Worker:
 			0,
 			0,
 		)
+		self._auto_pzem_reset_enabled = _is_enabled(os.getenv("AUTO_PZEM_RESET_OVERFLOW", "disable"))
+		self._auto_pzem_reset_threshold_kwh = _parse_positive_float(
+			os.getenv("AUTO_PZEM_RESET_THRESHOLD_KWH", "999.99"),
+			999.99,
+		)
+		self._auto_pzem_reset_cooldown_seconds = _parse_min_int(
+			os.getenv("AUTO_PZEM_RESET_COOLDOWN_SECONDS", "60"),
+			60,
+			1,
+		)
 
 		self._mqtt_client: Optional[mqtt.Client] = None
 		self._last_valid_dt: dict[str, datetime] = {}       # device_code → last valid datetime
 		self._last_sync_cmd: dict[str, float] = {}           # device_code → last sync command time
+		self._last_pzem_reset_cmd: dict[str, float] = {}     # device_code → last pzem reset command time
 
 	@staticmethod
 	def _parse_topic(topic: str) -> Optional[Tuple[str, str]]:
@@ -282,9 +358,63 @@ class Worker:
 			self._prediction_hourly_trigger,
 			self._prediction_daily_enabled,
 			self._prediction_daily_trigger,
+			self._handle_pzem_overflow_after_hourly,
 		)
 		self._pipelines[device_code] = pipeline
 		return pipeline
+
+	@staticmethod
+	def _build_command_topic(username: str, device_code: str) -> str:
+		if TOPIC_MODE == "simple":
+			return f"{username}/swm-cmd/{device_code}"
+		return f"/siwatt-mqtt/{username}/swm-cmd/{device_code}"
+
+	def _handle_pzem_overflow_after_hourly(self, username: str, device_code: str, energy_kwh: float) -> bool:
+		if not self._auto_pzem_reset_enabled:
+			return False
+
+		if energy_kwh <= self._auto_pzem_reset_threshold_kwh:
+			return False
+
+		if not self._mqtt_client:
+			self._logger.warning("mqtt_client_not_ready_for_pzem_reset", device_code=device_code)
+			return False
+
+		now_ts = time.time()
+		last_cmd_ts = self._last_pzem_reset_cmd.get(device_code, 0)
+		if now_ts - last_cmd_ts < self._auto_pzem_reset_cooldown_seconds:
+			self._logger.warning(
+				"pzem_overflow_detected_in_cooldown",
+				device_code=device_code,
+				energy_kwh=energy_kwh,
+				threshold_kwh=self._auto_pzem_reset_threshold_kwh,
+			)
+			return False
+
+		cmd_topic = self._build_command_topic(username, device_code)
+
+		try:
+			self._mqtt_client.publish(cmd_topic, json.dumps({"cmd": "pzem-reset"}))
+			self._mqtt_client.publish(cmd_topic, json.dumps({"cmd": "reboot"}))
+			self._last_pzem_reset_cmd[device_code] = now_ts
+
+			pipeline = self._pipelines.get(device_code)
+			if pipeline:
+				pipeline.mark_energy_reset_event()
+
+			self._last_valid_dt.pop(device_code, None)
+
+			self._logger.warning(
+				"pzem_overflow_auto_reset_sent",
+				device_code=device_code,
+				energy_kwh=energy_kwh,
+				threshold_kwh=self._auto_pzem_reset_threshold_kwh,
+				topic=cmd_topic,
+			)
+			return True
+		except Exception:
+			self._logger.exception("pzem_overflow_auto_reset_failed", device_code=device_code)
+			return False
 
 	def _handle_message(self, topic: str, payload: dict) -> None:
 		parsed = self._parse_topic(topic)
@@ -404,11 +534,7 @@ class Worker:
 		if now - last_sent < _SYNC_COMMAND_COOLDOWN:
 			return  # Masih dalam cooldown, jangan spam device
 
-		# Topic command: /siwatt-mqtt/{username}/swm-cmd/{device_code}
-		if TOPIC_MODE == "simple":
-			cmd_topic = f"{username}/swm-cmd/{device_code}"
-		else:
-			cmd_topic = f"/siwatt-mqtt/{username}/swm-cmd/{device_code}"
+		cmd_topic = self._build_command_topic(username, device_code)
 
 		cmd_payload = json.dumps({"cmd": "sync-rtc"})
 
@@ -439,7 +565,12 @@ class Worker:
 			self._logger.exception("sync_rtc_command_failed", device_code=device_code)
 
 	def run(self) -> None:
-		self._logger.info("worker_starting")
+		self._logger.info(
+			"worker_starting",
+			auto_pzem_reset_enabled=self._auto_pzem_reset_enabled,
+			auto_pzem_reset_threshold_kwh=self._auto_pzem_reset_threshold_kwh,
+			auto_pzem_reset_cooldown_seconds=self._auto_pzem_reset_cooldown_seconds,
+		)
 		self._recovery.replay_all(lambda device_code: self._get_pipeline(device_code).handle)
 
 		client = create_client()
