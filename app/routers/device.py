@@ -12,6 +12,7 @@ from app.models.device import Device
 from app.models.data_realtime import DataRealtime
 from app.models.data_hourly import DataHourly
 from app.models.prediction import Prediction
+from app.models.token_price import TokenPrice
 from app.models.user import User
 from app.schemas.device import DeviceCreate, DeviceListResponse, DeviceUpdate, DeviceResponse, DeviceDeleteRequest
 from app.schemas.response import ApiResponse
@@ -58,11 +59,18 @@ def create_device(
         else:
             raise HTTPException(status_code=400, detail="Device code already registered by another user")
 
+    if data.price_id is not None:
+        price = db.query(TokenPrice).filter(TokenPrice.id == data.price_id).first()
+        if not price:
+            raise HTTPException(status_code=404, detail="Token price not found")
+
     device = Device(
         device_code=data.device_code,
         user_id=user_id,
         device_name=data.device_name,
-        location=data.location
+        location=data.location,
+        price_id=data.price_id,
+        effective_tarif=data.effective_tarif
     )
     db.add(device)
     db.commit()
@@ -85,8 +93,17 @@ def update_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    device.device_name = data.device_name
-    device.location = data.location
+    update_data = data.dict(exclude_unset=True)
+    if "price_id" in update_data:
+        price_id = update_data["price_id"]
+        if price_id is not None:
+            price = db.query(TokenPrice).filter(TokenPrice.id == price_id).first()
+            if not price:
+                raise HTTPException(status_code=404, detail="Token price not found")
+
+    for field, value in update_data.items():
+        setattr(device, field, value)
+
     db.commit()
     db.refresh(device)
     

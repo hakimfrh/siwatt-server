@@ -50,3 +50,23 @@ class TokenBalanceGraphResponse(BaseModel):
     token_balance: float
     message: str
     data: List[TokenBalanceGraphPoint]
+
+class TokenPriceResponse(BaseModel):
+    id: int
+    code: Optional[str] = None
+    details: Optional[str] = None
+    price_per_kwh: Optional[float] = None
+    last_update: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class TokenPriceListResponse(BaseModel):
+    code: int
+    message: str
+    data_length: Optional[int] = None
+    total_data: Optional[int] = None
+    total_pages: Optional[int] = None
+    current_page: Optional[int] = None
+    data_per_page: Optional[int] = None
+    data: Optional[List[TokenPriceResponse]] = None

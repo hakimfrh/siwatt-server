@@ -7,8 +7,16 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.device import Device
 from app.models.data_hourly import DataHourly
+from app.models.token_price import TokenPrice
 from app.models.token_transaction import TokenTransaction
-from app.schemas.token import TokenTopUp, TokenTransactionListResponse, TokenBalanceGraphResponse, TokenCorrection
+from app.schemas.token import (
+    TokenTopUp,
+    TokenTransactionListResponse,
+    TokenBalanceGraphResponse,
+    TokenCorrection,
+    TokenPriceListResponse,
+    TokenPriceResponse
+)
 from app.schemas.response import ApiResponse
 
 router = APIRouter(
@@ -108,6 +116,52 @@ def create_correction(
             "device_id": device.id,
             "new_balance": float(device.token_balance or 0)
         }
+    }
+
+@router.get("/prices", response_model=TokenPriceListResponse)
+def list_token_prices(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=-1),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user)
+):
+    query = db.query(TokenPrice).order_by(TokenPrice.last_update.desc(), TokenPrice.id.desc())
+    total = query.count()
+
+    if limit == -1:
+        prices = query.all()
+        limit = total
+        total_pages = 1
+    else:
+        offset = (page - 1) * limit
+        prices = query.offset(offset).limit(limit).all()
+        total_pages = (total + limit - 1) // limit if limit > 0 else 0
+
+    return {
+        "code": 200,
+        "message": "Token prices retrieved",
+        "data_length": len(prices),
+        "total_data": total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "data_per_page": limit,
+        "data": prices
+    }
+
+@router.get("/prices/{price_id}", response_model=ApiResponse[TokenPriceResponse])
+def get_token_price(
+    price_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user)
+):
+    price = db.query(TokenPrice).filter(TokenPrice.id == price_id).first()
+    if not price:
+        raise HTTPException(status_code=404, detail="Token price not found")
+
+    return {
+        "code": 200,
+        "message": "Token price retrieved",
+        "data": price
     }
 
 @router.get("/transactions/{device_id}", response_model=TokenTransactionListResponse)
@@ -389,3 +443,4 @@ def get_token_balance_data(
         "token_balance": float(device.token_balance or 0),
         "data": data_points
     }
+
