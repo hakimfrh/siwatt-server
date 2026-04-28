@@ -70,7 +70,7 @@ def create_device(
         device_name=data.device_name,
         location=data.location,
         price_id=data.price_id,
-        effective_tarif=data.effective_tarif
+        effective_tariff=data.effective_tariff
     )
     db.add(device)
     db.commit()
