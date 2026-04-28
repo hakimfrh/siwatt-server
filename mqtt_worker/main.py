@@ -114,7 +114,8 @@ class AggregationPipeline:
 		self._prediction_daily_trigger = prediction_daily_trigger
 		self._pzem_overflow_after_hourly_handler = pzem_overflow_after_hourly_handler
 		self._ignore_previous_energy_reference = False
-		self._skip_hourly_transition_once = False
+		self._energy_reset_reference: float | None = None
+		self._energy_reset_active = False
 
 	@staticmethod
 	def _is_trigger_match(hour_mark: datetime, trigger: tuple[int, int]) -> bool:
@@ -153,7 +154,19 @@ class AggregationPipeline:
 		self._last_processed_dt = None
 		self._minute_agg = MinuteAggregator()
 		self._ignore_previous_energy_reference = True
-		self._skip_hourly_transition_once = True
+		self._energy_reset_reference = None
+		self._energy_reset_active = True
+
+	def _normalize_energy_after_reset(self, energy_raw: float) -> float:
+		"""Normalisasi energy agar pembacaan setelah reset dimulai dari 0."""
+		if not self._energy_reset_active:
+			return energy_raw
+
+		if self._energy_reset_reference is None:
+			self._energy_reset_reference = energy_raw
+			return 0.0
+
+		return max(0.0, round(energy_raw - self._energy_reset_reference, 3))
 
 	def handle(self, record: dict) -> ProcessDecision:
 		try:
@@ -166,13 +179,22 @@ class AggregationPipeline:
 			self._logger.exception("record_parse_failed", record=record)
 			return ProcessDecision(success=False)
 
+		try:
+			raw_energy = float(payload["energy"])
+		except Exception:
+			self._logger.exception("energy_parse_failed", record=record)
+			return ProcessDecision(success=False)
+
+		normalized_payload = dict(payload)
+		normalized_payload["energy"] = self._normalize_energy_after_reset(raw_energy)
+
 		if self._last_processed_dt and dt <= self._last_processed_dt:
 			return ProcessDecision(success=True)
 
-		if not self._realtime.handle(device_id, payload, dt):
+		if not self._realtime.handle(device_id, normalized_payload, dt):
 			return ProcessDecision(success=False)
 
-		aggregate = self._minute_agg.add(payload, dt)
+		aggregate = self._minute_agg.add(normalized_payload, dt)
 		self._last_processed_dt = dt
 
 		if not aggregate:
@@ -230,31 +252,28 @@ class AggregationPipeline:
 		current_hour = floor_hour(dt)
 		if current_hour != aggregate.bucket_hour:
 			hourly_saved = False
-			if self._skip_hourly_transition_once:
-				self._skip_hourly_transition_once = False
-			else:
-				success, energy_delta = self._hourly.handle(
-					device_id,
-					aggregate.bucket_hour,
-					current_hour,
-					aggregate.energy_last,
-				)
-				if not success:
+			success, energy_delta = self._hourly.handle(
+				device_id,
+				aggregate.bucket_hour,
+				current_hour,
+				aggregate.energy_last,
+			)
+			if not success:
+				return ProcessDecision(success=False)
+			hourly_saved = energy_delta is not None
+			if self._balance_mode == "hour" and energy_delta is not None:
+				try:
+					self._repo.decrement_token_balance(device_id, energy_delta)
+				except Exception:
+					self._logger.exception("balance_hour_update_failed", device_id=device_id)
 					return ProcessDecision(success=False)
-				hourly_saved = energy_delta is not None
-				if self._balance_mode == "hour" and energy_delta is not None:
-					try:
-						self._repo.decrement_token_balance(device_id, energy_delta)
-					except Exception:
-						self._logger.exception("balance_hour_update_failed", device_id=device_id)
-						return ProcessDecision(success=False)
 
-				if energy_delta is not None:
-					if self._prediction_hourly_enabled and self._is_trigger_match(current_hour, self._prediction_hourly_trigger):
-						self._enqueue_prediction_job(device_id, "hourly", current_hour)
+			if energy_delta is not None:
+				if self._prediction_hourly_enabled and self._is_trigger_match(current_hour, self._prediction_hourly_trigger):
+					self._enqueue_prediction_job(device_id, "hourly", current_hour)
 
-					if self._prediction_daily_enabled and self._is_trigger_match(current_hour, self._prediction_daily_trigger):
-						self._enqueue_prediction_job(device_id, "daily", current_hour)
+				if self._prediction_daily_enabled and self._is_trigger_match(current_hour, self._prediction_daily_trigger):
+					self._enqueue_prediction_job(device_id, "daily", current_hour)
 
 			if hourly_saved and self._pzem_overflow_after_hourly_handler:
 				try:
