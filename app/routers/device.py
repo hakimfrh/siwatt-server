@@ -45,6 +45,23 @@ def _normalize_prediction_result(raw_value: Any) -> Any:
 
     return raw_value
 
+
+def _serialize_device_with_price(device: Device, token_price: Optional[TokenPrice]) -> dict:
+    return {
+        "id": device.id,
+        "device_code": device.device_code,
+        "device_name": device.device_name,
+        "location": device.location,
+        "price_id": device.price_id,
+        "effective_tariff": device.effective_tariff,
+        "token_balance": float(device.token_balance or 0),
+        "is_active": bool(device.is_active),
+        "up_time": int(device.up_time or 0),
+        "last_online": device.last_online,
+        "created_at": device.created_at,
+        "token_price": token_price
+    }
+
 @router.post("", response_model=ApiResponse[DeviceResponse])
 def create_device(
     data: DeviceCreate,
@@ -133,15 +150,26 @@ def list_devices(
         devices = query.offset(offset).limit(limit).all()
         total_pages = (total + limit - 1) // limit if limit > 0 else 0
 
+    price_ids = {device.price_id for device in devices if device.price_id is not None}
+    price_map = {}
+    if price_ids:
+        prices = db.query(TokenPrice).filter(TokenPrice.id.in_(price_ids)).all()
+        price_map = {price.id: price for price in prices}
+
+    device_data = [
+        _serialize_device_with_price(device, price_map.get(device.price_id))
+        for device in devices
+    ]
+
     return {
         "code": 200,
         "message": "Devices retrieved",
-        "data_length": len(devices),
+        "data_length": len(device_data),
         "total_data": total,
         "total_pages": total_pages,
         "current_page": page,
         "data_per_page": limit,
-        "data": devices
+        "data": device_data
     }
 
 @router.get("/{id}", response_model=ApiResponse[DeviceResponse])
@@ -161,10 +189,14 @@ def get_device(
             "data": None
         }
 
+    token_price = None
+    if device.price_id is not None:
+        token_price = db.query(TokenPrice).filter(TokenPrice.id == device.price_id).first()
+
     return {
         "code": 200,
         "message": "Device retrieved",
-        "data": device
+        "data": _serialize_device_with_price(device, token_price)
     }
 
 @router.delete("/{id}")

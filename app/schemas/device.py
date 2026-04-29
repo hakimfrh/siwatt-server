@@ -2,6 +2,8 @@ from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, List
 
+from app.schemas.token import TokenPriceResponse
+
 class DeviceCreate(BaseModel):
     device_code: str
     device_name: str
@@ -30,6 +32,7 @@ class DeviceResponse(BaseModel):
     up_time: int
     last_online: Optional[datetime] = None
     created_at: datetime
+    token_price: Optional[TokenPriceResponse] = None
     
     class Config:
         from_attributes = True
