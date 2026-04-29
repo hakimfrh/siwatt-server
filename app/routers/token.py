@@ -125,7 +125,7 @@ def list_token_prices(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
-    query = db.query(TokenPrice).order_by(TokenPrice.last_update.desc(), TokenPrice.id.desc())
+    query = db.query(TokenPrice).order_by(TokenPrice.id.asc())
     total = query.count()
 
     if limit == -1:
