@@ -53,7 +53,7 @@ def _serialize_device_with_price(device: Device, token_price: Optional[TokenPric
         "device_name": device.device_name,
         "location": device.location,
         "price_id": device.price_id,
-        "effective_tariff": device.effective_tariff,
+        "price_tax": device.price_tax,
         "token_balance": float(device.token_balance or 0),
         "is_active": bool(device.is_active),
         "up_time": int(device.up_time or 0),
@@ -87,7 +87,7 @@ def create_device(
         device_name=data.device_name,
         location=data.location,
         price_id=data.price_id,
-        effective_tariff=data.effective_tariff
+        price_tax=data.price_tax
     )
     db.add(device)
     db.commit()

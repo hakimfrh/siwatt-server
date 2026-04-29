@@ -9,7 +9,7 @@ class Device(Base):
     id = Column(BigInteger, primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.id"))
     price_id = Column(BigInteger, ForeignKey("token_price.id"))
-    effective_tariff = Column(Numeric(5, 2))
+    price_tax = Column(Numeric(6, 5))
     device_code = Column(String(100), unique=True, nullable=False)
     device_name = Column(String(100))
     location = Column(String(100))

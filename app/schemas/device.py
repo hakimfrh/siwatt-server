@@ -9,13 +9,13 @@ class DeviceCreate(BaseModel):
     device_name: str
     location: str
     price_id: Optional[int] = None
-    effective_tariff: Optional[float] = None
+    price_tax: Optional[float] = None
 
 class DeviceUpdate(BaseModel):
     device_name: Optional[str] = None
     location: Optional[str] = None
     price_id: Optional[int] = None
-    effective_tariff: Optional[float] = None
+    price_tax: Optional[float] = None
 
 class DeviceDeleteRequest(BaseModel):
     password: str
@@ -26,7 +26,7 @@ class DeviceResponse(BaseModel):
     device_name: str
     location: str
     price_id: Optional[int] = None
-    effective_tariff: Optional[float] = None
+    price_tax: Optional[float] = None
     token_balance: float
     is_active: bool
     up_time: int
